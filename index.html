@@ -52,17 +52,21 @@ const load = async (key) => {
 const save = async (key, val) => {
   try {
     localStorage.setItem(key, JSON.stringify(val));
+    return true;
   } catch (e) {
     console.error("Storage error", e);
+    return false;
   }
 };
 
 // ─── UTILS ────────────────────────────────────────────────────────────────────
 const calcPoints = (pred, result, phase) => {
   if (!result || result.home === "" || result.away === "") return null;
-  const ph = parseInt(pred.home), pa = parseInt(pred.away);
-  const rh = parseInt(result.home), ra = parseInt(result.away);
-  if (isNaN(ph) || isNaN(pa)) return null;
+  const ph = parseInt(pred.home, 10), pa = parseInt(pred.away, 10);
+  const rh = parseInt(result.home, 10), ra = parseInt(result.away, 10);
+  if (isNaN(ph) || isNaN(pa) || isNaN(rh) || isNaN(ra)) return null;
+  if (ph < 0 || pa < 0 || ph > 99 || pa > 99) return null;
+  if (rh < 0 || ra < 0 || rh > 99 || ra > 99) return null;
   
   const phaseConfig = PHASES[phase] || PHASES.group;
   
@@ -79,9 +83,10 @@ const calcPoints = (pred, result, phase) => {
   return phaseConfig.participation;
 };
 
-const totalPoints = (participantId, predictions, bonuses, matches) => {
+const totalPoints = (participantId, predictions, bonuses, matches, settings) => {
   let total = 0;
-  
+  const cfg = settings || DEFAULT_SETTINGS;
+
   // Match points
   matches.forEach((m) => {
     const pred = predictions[participantId]?.[m.id];
@@ -90,27 +95,27 @@ const totalPoints = (participantId, predictions, bonuses, matches) => {
       if (pts !== null) total += pts;
     }
   });
-  
+
   // Bonus points
   const userBonus = bonuses[participantId];
   if (userBonus?.topScorer && bonuses.results?.topScorer) {
     if (userBonus.topScorer === bonuses.results.topScorer) {
-      total += DEFAULT_SETTINGS.topScorerExact;
+      total += cfg.topScorerExact;
     } else if (bonuses.results.topScorerTop3?.includes(userBonus.topScorer)) {
-      total += DEFAULT_SETTINGS.topScorerInTop3;
+      total += cfg.topScorerInTop3;
     }
   }
-  
+
   if (userBonus?.winner && bonuses.results?.winner && userBonus.winner === bonuses.results.winner) {
-    total += DEFAULT_SETTINGS.winnerPoints;
+    total += cfg.winnerPoints;
   }
   if (userBonus?.runnerUp && bonuses.results?.runnerUp && userBonus.runnerUp === bonuses.results.runnerUp) {
-    total += DEFAULT_SETTINGS.runnerUpPoints;
+    total += cfg.runnerUpPoints;
   }
   if (userBonus?.third && bonuses.results?.third && userBonus.third === bonuses.results.third) {
-    total += DEFAULT_SETTINGS.thirdPlacePoints;
+    total += cfg.thirdPlacePoints;
   }
-  
+
   return total;
 };
 
@@ -623,11 +628,11 @@ function App() {
   }, []);
 
   // ── PERSIST ───────────────────────────────────────────────────────────────
-  const persistMatches = async (val) => { setMatches(val); await save(STORAGE_KEYS.matches, val); };
-  const persistParticipants = async (val) => { setParticipants(val); await save(STORAGE_KEYS.participants, val); };
-  const persistPredictions = async (val) => { setPredictions(val); await save(STORAGE_KEYS.predictions, val); };
-  const persistBonuses = async (val) => { setBonuses(val); await save(STORAGE_KEYS.bonuses, val); };
-  const persistSettings = async (val) => { setSettings(val); await save(STORAGE_KEYS.settings, val); };
+  const persistMatches = async (val) => { setMatches(val); if (!await save(STORAGE_KEYS.matches, val)) showToast("Opslaan mislukt – opslag vol?", "error"); };
+  const persistParticipants = async (val) => { setParticipants(val); if (!await save(STORAGE_KEYS.participants, val)) showToast("Opslaan mislukt – opslag vol?", "error"); };
+  const persistPredictions = async (val) => { setPredictions(val); if (!await save(STORAGE_KEYS.predictions, val)) showToast("Opslaan mislukt – opslag vol?", "error"); };
+  const persistBonuses = async (val) => { setBonuses(val); if (!await save(STORAGE_KEYS.bonuses, val)) showToast("Opslaan mislukt – opslag vol?", "error"); };
+  const persistSettings = async (val) => { setSettings(val); if (!await save(STORAGE_KEYS.settings, val)) showToast("Opslaan mislukt – opslag vol?", "error"); };
 
   // ── LOADING SCREEN ────────────────────────────────────────────────────────
   if (loading) {
@@ -674,13 +679,31 @@ function App() {
   const AdminLogin = () => {
     const [password, setPassword] = useState("");
     const [error, setError] = useState(false);
+    const [attempts, setAttempts] = useState(0);
+    const [lockedUntil, setLockedUntil] = useState(null);
+
+    const MAX_ATTEMPTS = 5;
+    const LOCKOUT_SECONDS = 30;
+
+    const isLocked = lockedUntil && new Date() < lockedUntil;
+    const remainingSeconds = isLocked ? Math.ceil((lockedUntil - new Date()) / 1000) : 0;
 
     const handleLogin = () => {
+      if (isLocked) return;
       if (password === ADMIN_PASSWORD) {
         setAdminUnlocked(true);
         setError(false);
+        setAttempts(0);
       } else {
+        const newAttempts = attempts + 1;
+        setAttempts(newAttempts);
         setError(true);
+        if (newAttempts >= MAX_ATTEMPTS) {
+          const until = new Date(Date.now() + LOCKOUT_SECONDS * 1000);
+          setLockedUntil(until);
+          setAttempts(0);
+          setPassword("");
+        }
       }
     };
 
@@ -699,15 +722,18 @@ function App() {
               className="form-input"
               placeholder="Wachtwoord"
               value={password}
+              disabled={isLocked}
               onChange={(e) => setPassword(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") handleLogin();
               }}
             />
-            {error && <div className="alert alert-error mt-8">❌ Onjuist wachtwoord</div>}
+            {error && !isLocked && <div className="alert alert-error mt-8">❌ Onjuist wachtwoord{attempts > 0 ? ` (${attempts}/${MAX_ATTEMPTS} pogingen)` : ""}</div>}
+            {isLocked && <div className="alert alert-error mt-8">🔒 Te veel pogingen. Probeer opnieuw over {remainingSeconds}s</div>}
           </div>
           <button className="btn btn-gold w-full" style={{ justifyContent: "center" }}
-            onClick={handleLogin}>
+            onClick={handleLogin}
+            disabled={isLocked}>
             Inloggen
           </button>
           <button className="btn btn-ghost mt-8 w-full" style={{ justifyContent: "center" }}
@@ -739,7 +765,13 @@ function App() {
     const setResult = async (matchId) => {
       const r = editResult[matchId];
       if (!r || r.home === "" || r.away === "") return;
-      const updated = matches.map((m) => m.id === matchId ? { ...m, result: r } : m);
+      const h = parseInt(r.home, 10), a = parseInt(r.away, 10);
+      if (isNaN(h) || isNaN(a) || h < 0 || a < 0 || h > 99 || a > 99) {
+        showToast("Ongeldige score – gebruik 0 t/m 99", "error");
+        return;
+      }
+      const validated = { home: String(h), away: String(a) };
+      const updated = matches.map((m) => m.id === matchId ? { ...m, result: validated } : m);
       await persistMatches(updated);
       showToast("Uitslag opgeslagen ✓");
     };
@@ -910,7 +942,7 @@ function App() {
             <div className="section-title">Deelnemers ({participants.length})</div>
             {participants.length === 0 && <div className="empty-state"><div className="icon">👥</div><p>Nog geen deelnemers</p></div>}
             {participants.map((p) => {
-              const pts = totalPoints(p.id, predictions, bonuses, matches);
+              const pts = totalPoints(p.id, predictions, bonuses, matches, settings);
               const count = Object.keys(predictions[p.id] || {}).length;
               return (
                 <div key={p.id} className="rank-row">
@@ -951,27 +983,27 @@ function App() {
                 <div className="form-group mb-0">
                   <label className="form-label">Topscorer exact</label>
                   <input className="form-input" type="number" min="0" value={settings.topScorerExact}
-                    onChange={(e) => persistSettings({ ...settings, topScorerExact: Number(e.target.value) })} />
+                    onChange={(e) => { const v = parseInt(e.target.value, 10); if (!isNaN(v) && v >= 0) persistSettings({ ...settings, topScorerExact: v }); }} />
                 </div>
                 <div className="form-group mb-0">
                   <label className="form-label">Topscorer in top-3</label>
                   <input className="form-input" type="number" min="0" value={settings.topScorerInTop3}
-                    onChange={(e) => persistSettings({ ...settings, topScorerInTop3: Number(e.target.value) })} />
+                    onChange={(e) => { const v = parseInt(e.target.value, 10); if (!isNaN(v) && v >= 0) persistSettings({ ...settings, topScorerInTop3: v }); }} />
                 </div>
                 <div className="form-group mb-0">
                   <label className="form-label">Winnaar</label>
                   <input className="form-input" type="number" min="0" value={settings.winnerPoints}
-                    onChange={(e) => persistSettings({ ...settings, winnerPoints: Number(e.target.value) })} />
+                    onChange={(e) => { const v = parseInt(e.target.value, 10); if (!isNaN(v) && v >= 0) persistSettings({ ...settings, winnerPoints: v }); }} />
                 </div>
                 <div className="form-group mb-0">
                   <label className="form-label">Runner-up</label>
                   <input className="form-input" type="number" min="0" value={settings.runnerUpPoints}
-                    onChange={(e) => persistSettings({ ...settings, runnerUpPoints: Number(e.target.value) })} />
+                    onChange={(e) => { const v = parseInt(e.target.value, 10); if (!isNaN(v) && v >= 0) persistSettings({ ...settings, runnerUpPoints: v }); }} />
                 </div>
                 <div className="form-group mb-0">
                   <label className="form-label">Derde plaats</label>
                   <input className="form-input" type="number" min="0" value={settings.thirdPlacePoints}
-                    onChange={(e) => persistSettings({ ...settings, thirdPlacePoints: Number(e.target.value) })} />
+                    onChange={(e) => { const v = parseInt(e.target.value, 10); if (!isNaN(v) && v >= 0) persistSettings({ ...settings, thirdPlacePoints: v }); }} />
                 </div>
               </div>
             </div>
@@ -1018,14 +1050,11 @@ function App() {
   const ParticipantView = () => {
     const [localPreds, setLocalPreds] = useState(predictions[myId] || {});
     const [localBonus, setLocalBonus] = useState(bonuses[myId] || { topScorer: "", winner: "", runnerUp: "", third: "" });
-    const [saved, setSaved] = useState(false);
     const [tab, setTab] = useState("predict");
 
     const savePredictions = async () => {
       const upd = { ...predictions, [myId]: localPreds };
       await persistPredictions(upd);
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2500);
       showToast("Prono's opgeslagen ✓");
     };
 
@@ -1039,7 +1068,7 @@ function App() {
     const openMatches = matches.filter((m) => !m.date || new Date(m.date) > now);
     const closedMatches = matches.filter((m) => m.date && new Date(m.date) <= now);
 
-    const myPoints = totalPoints(myId, predictions, bonuses, matches);
+    const myPoints = totalPoints(myId, predictions, bonuses, matches, settings);
 
     return (
       <div>
@@ -1131,13 +1160,14 @@ function App() {
             {(() => {
               const now = new Date();
               const deadline = new Date(settings.bonusDeadline);
-              const isClosed = now > deadline;
+              const deadlineValid = !isNaN(deadline.getTime());
+              const isClosed = deadlineValid && now > deadline;
               
               if (isClosed) {
                 return (
                   <div className="card">
                     <div className="alert alert-error">
-                      🔒 Bonusvragen zijn gesloten sinds {deadline.toLocaleString("nl-BE", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                      🔒 Bonusvragen zijn gesloten{deadlineValid ? ` sinds ${deadline.toLocaleString("nl-BE", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}` : ""}
                     </div>
                     {bonuses[myId] && (
                       <div style={{ marginTop: 16 }}>
@@ -1157,7 +1187,7 @@ function App() {
               return (
                 <div className="card">
                   <div className="alert alert-info" style={{ marginBottom: 16 }}>
-                    ⏰ Deadline: {deadline.toLocaleString("nl-BE", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                    ⏰ Deadline: {deadlineValid ? deadline.toLocaleString("nl-BE", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "Niet ingesteld"}
                   </div>
                   <div className="form-group">
                     <label className="form-label">Topscorer WK ({DEFAULT_SETTINGS.topScorerExact}pt exact, {DEFAULT_SETTINGS.topScorerInTop3}pt als in top-3)</label>
@@ -1298,6 +1328,10 @@ function App() {
 
     const register = async () => {
       if (!newName.trim() || !newPin.trim()) return;
+      if (newName.trim().length > 50) {
+        showToast("Naam mag maximaal 50 tekens bevatten", "error");
+        return;
+      }
       if (newPin.length !== 4 || !/^\d{4}$/.test(newPin)) {
         showToast("Pincode moet 4 cijfers zijn", "error");
         return;
@@ -1396,8 +1430,9 @@ function App() {
               <label className="form-label">Jouw naam</label>
               <input 
                 key="register-name-input"
-                className="form-input" 
-                placeholder="Voornaam of bijnaam" 
+                className="form-input"
+                placeholder="Voornaam of bijnaam"
+                maxLength="50"
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)} />
             </div>
@@ -1433,6 +1468,7 @@ function App() {
   // ── RULES ──────────────────────────────────────────────────────────────────
   const Rules = () => {
     const deadline = new Date(settings.bonusDeadline);
+    const deadlineValid = !isNaN(deadline.getTime());
     
     return (
       <div>
@@ -1523,7 +1559,7 @@ function App() {
               <li style={{ marginBottom: 8 }}>Derde plaats: <strong style={{ color: "var(--gold)" }}>{settings.thirdPlacePoints}pt</strong></li>
             </ul>
             <div className="alert alert-info mt-16">
-              ⏰ <strong>Deadline bonusvragen:</strong> {deadline.toLocaleString("nl-BE", { weekday: "long", day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+              ⏰ <strong>Deadline bonusvragen:</strong> {deadlineValid ? deadline.toLocaleString("nl-BE", { weekday: "long", day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "Niet ingesteld"}
             </div>
           </div>
         </div>
@@ -1541,7 +1577,7 @@ function App() {
           <h3 style={{ fontFamily: "'Bebas Neue'", fontSize: 22, letterSpacing: 2, color: "var(--gold)", marginBottom: 12 }}>📅 Deadlines</h3>
           <div style={{ fontSize: 15, lineHeight: 1.6 }}>
             <p style={{ marginBottom: 12 }}><strong>Wedstrijden:</strong> Je kunt je prono invullen tot de aftrap van de wedstrijd. Daarna wordt de wedstrijd automatisch gesloten.</p>
-            <p style={{ marginBottom: 0 }}><strong>Bonusvragen:</strong> Kunnen ingevuld worden tot {deadline.toLocaleString("nl-BE", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })}.</p>
+            <p style={{ marginBottom: 0 }}><strong>Bonusvragen:</strong> Kunnen ingevuld worden tot {deadlineValid ? deadline.toLocaleString("nl-BE", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" }) : "datum niet ingesteld"}.</p>
           </div>
         </div>
 
@@ -1560,7 +1596,7 @@ function App() {
   // ── LEADERBOARD ────────────────────────────────────────────────────────────
   const Leaderboard = () => {
     const ranked = [...participants]
-      .map((p) => ({ ...p, pts: totalPoints(p.id, predictions, bonuses, matches) }))
+      .map((p) => ({ ...p, pts: totalPoints(p.id, predictions, bonuses, matches, settings) }))
       .sort((a, b) => b.pts - a.pts);
 
     const medals = ["🥇", "🥈", "🥉"];
