@@ -822,8 +822,18 @@ function App() {
         // Load participant record
         try {
           const snap = await db.ref(`participants/${u.uid}`).get();
-          if (snap.exists()) setParticipant({ uid: u.uid, ...snap.val() });
-          else setParticipant({ uid: u.uid, name: u.email?.split("@")[0] || "Deelnemer", email: u.email });
+if (snap.exists()) {
+  setParticipant({ uid: u.uid, ...snap.val() });
+} else {
+  const newParticipant = { 
+    uid: u.uid, 
+    name: u.email?.split("@")[0] || "Deelnemer", 
+    email: u.email,
+    joinedAt: new Date().toISOString()
+  };
+  await db.ref(`participants/${u.uid}`).set(newParticipant);
+  setParticipant(newParticipant);
+}
         } catch {}
       } else {
         setIsAdmin(false);
