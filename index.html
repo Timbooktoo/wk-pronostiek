@@ -699,12 +699,22 @@ const PHASES = {
   final:   { name: "Finale",       exact: 100, half: 50, participation: 10 },
 };
 
+const WK_TEAMS = [
+  "Algerije","Argentinië","Australië","België","Brazilië","Canada","Colombia",
+  "Costa Rica","Denemarken","DR Congo","Duitsland","Ecuador","Egypte","Engeland",
+  "Frankrijk","Honduras","Hongarije","Indonesië","Irak","Iran","Italië","Jamaica",
+  "Japan","Jordanië","Kameroen","Kroatië","Marokko","Mexico","Nederland",
+  "Nieuw-Zeeland","Nigeria","Oezbekistan","Oostenrijk","Panama","Peru","Portugal",
+  "Saudi-Arabië","Schotland","Senegal","Servië","Slovenië","Spanje","Turkije",
+  "Tunesië","Uruguay","Venezuela","VS","Zuid-Afrika","Zuid-Korea","Zwitserland",
+];
+
 const HALL_OF_FAME = [
-  { edition: "EK 2016",  flag: "🇫🇷", winner: "Ik Haat Smurfen",        realName: "Danny Huwé (RIP)" },
-  { edition: "WK 2018",  flag: "🇷🇺", winner: "Pure Magie",              realName: "Ben De Vriendt"   },
-  { edition: "EK 2020",  flag: "🇮🇹", winner: "NogEentje VoorDeLeute",   realName: "Koen Timmerman"   },
-  { edition: "WK 2022",  flag: "🇶🇦", winner: "De Boeckmaker",           realName: "Tim De Boeck"     },
-  { edition: "EK 2024",  flag: "🇩🇪", winner: "Sheik Yerbouti",          realName: "Koen Timmerman"   },
+  { edition: "EK 2016",  code: "fr", winner: "Ik Haat Smurfen",        realName: "Danny Huwé (RIP)" },
+  { edition: "WK 2018",  code: "ru", winner: "Pure Magie",              realName: "Ben De Vriendt"   },
+  { edition: "EK 2020",  code: "it", winner: "NogEentje VoorDeLeute",   realName: "Koen Timmerman"   },
+  { edition: "WK 2022",  code: "qa", winner: "De Boeckmaker",           realName: "Tim De Boeck"     },
+  { edition: "EK 2024",  code: "de", winner: "Sheik Yerbouti",          realName: "Koen Timmerman"   },
 ];
 
 const DEFAULT_SETTINGS = {
@@ -746,6 +756,8 @@ const calcPoints = (pred, result, phase) => {
   return cfg.participation;
 };
 
+const norm = s => (s || "").trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+
 const totalPoints = (uid, allPreds, bonuses, matches, settings) => {
   let total = 0;
   const cfg = { ...DEFAULT_SETTINGS, ...settings };
@@ -760,12 +772,12 @@ const totalPoints = (uid, allPreds, bonuses, matches, settings) => {
   const br = bonuses?.results;
   if (ub && br) {
     if (ub.topScorer && br.topScorer) {
-      if (ub.topScorer === br.topScorer) total += cfg.topScorerExact;
-      else if (br.topScorerTop3?.includes(ub.topScorer)) total += cfg.topScorerInTop3;
+      if (norm(ub.topScorer) === norm(br.topScorer)) total += cfg.topScorerExact;
+      else if (br.topScorerTop3?.some(t => norm(t) === norm(ub.topScorer))) total += cfg.topScorerInTop3;
     }
-    if (ub.winner   && br.winner   && ub.winner   === br.winner)   total += cfg.winnerPoints;
-    if (ub.runnerUp && br.runnerUp && ub.runnerUp === br.runnerUp) total += cfg.runnerUpPoints;
-    if (ub.third    && br.third    && ub.third    === br.third)     total += cfg.thirdPlacePoints;
+    if (ub.winner   && br.winner   && norm(ub.winner)   === norm(br.winner))   total += cfg.winnerPoints;
+    if (ub.runnerUp && br.runnerUp && norm(ub.runnerUp) === norm(br.runnerUp)) total += cfg.runnerUpPoints;
+    if (ub.third    && br.third    && norm(ub.third)    === norm(br.third))     total += cfg.thirdPlacePoints;
   }
   return total;
 };
@@ -969,7 +981,7 @@ if (snap.exists()) {
         {/* Content */}
         <div className="content">
           {view === "home"    && <HomeView myPoints={myPoints} matches={matches} participants={participants} allPreds={allPreds} bonuses={bonuses} settings={settings} myUid={myUid} setView={setView} participant={participant} user={user} updateName={updateName} />}
-          {view === "pronos"  && <PronosView openMatches={openMatches} closedMatches={closedMatches} myPreds={myPreds} allPreds={allPreds} myUid={myUid} dbSet={dbSet} showToast={showToast} bonuses={bonuses} myBonus={myBonus} settings={settings} matches={matches} />}
+          {view === "pronos"  && <PronosView openMatches={openMatches} closedMatches={closedMatches} myPreds={myPreds} allPreds={allPreds} myUid={myUid} dbSet={dbSet} showToast={showToast} bonuses={bonuses} myBonus={myBonus} settings={settings} matches={matches} participants={participants} />}
           {view === "ranking" && <RankingView participants={participants} allPreds={allPreds} bonuses={bonuses} matches={matches} settings={settings} myUid={myUid} />}
           {view === "hof"     && <HallOfFameView />}
           {view === "rules"   && <RulesView settings={settings} />}
@@ -1219,7 +1231,7 @@ function HomeView({ myPoints, matches, participants, allPreds, bonuses, settings
 // ════════════════════════════════════════════════════════════════════════════
 // PRONOS VIEW
 // ════════════════════════════════════════════════════════════════════════════
-function PronosView({ openMatches, closedMatches, myPreds, allPreds, myUid, dbSet, showToast, bonuses, myBonus, settings, matches }) {
+function PronosView({ openMatches, closedMatches, myPreds, allPreds, myUid, dbSet, showToast, bonuses, myBonus, settings, matches, participants }) {
   const [tab,        setTab]        = useState("open");
   const [localPreds, setLocalPreds] = useState(myPreds || {});
   const [localBonus, setLocalBonus] = useState(myBonus || { topScorer:"", winner:"", runnerUp:"", third:"" });
@@ -1312,25 +1324,41 @@ function PronosView({ openMatches, closedMatches, myPreds, allPreds, myUid, dbSe
             const pred = allPreds?.[myUid]?.[m.id];
             const pts  = pred && m.result ? calcPoints(pred, m.result, m.phase) : null;
             const cfg2 = PHASES[m.phase] || PHASES.group;
+            const allForMatch = (participants || [])
+              .map(p => ({ ...p, pred: allPreds?.[p.uid]?.[m.id], pts: allPreds?.[p.uid]?.[m.id] && m.result ? calcPoints(allPreds[p.uid][m.id], m.result, m.phase) : null }))
+              .sort((a,b) => a.name.localeCompare(b.name, "nl"));
             return (
-              <div key={m.id} className="match-card" style={{ opacity: 0.8 }}>
+              <div key={m.id} className="match-card" style={{ opacity: 0.9 }}>
                 <div className="match-meta">
                   <span>{m.group} · {cfg2.name}</span>
-                  <span className="badge badge-closed">Gesloten</span>
+                  <span className="flex items-center gap-6">
+                    {m.result && <span className="badge badge-result">{m.result.home}–{m.result.away}</span>}
+                    <span className="badge badge-closed">Gesloten</span>
+                  </span>
                 </div>
-                <div className="teams-row">
+                <div className="teams-row" style={{ marginBottom:12 }}>
                   <span className="team-name home" style={{ fontSize:13 }}>{m.home}</span>
                   <div style={{ textAlign:"center", minWidth:80 }}>
                     {pred
                       ? <div style={{ fontFamily:"'Bebas Neue'", fontSize:20, color:"var(--gray-l)" }}>{pred.home || "?"} – {pred.away || "?"}</div>
                       : <div className="text-gray text-small">geen prono</div>
                     }
-                    {m.result && <div style={{ fontFamily:"'Bebas Neue'", fontSize:14, color:"var(--gray)", marginTop:2 }}>uitslag: {m.result.home}–{m.result.away}</div>}
                   </div>
                   <span className="team-name away" style={{ fontSize:13 }}>{m.away}</span>
-                  {pts !== null ? (
-                    <span className={`pts ${pts === cfg2.exact ? "pts-exact" : pts > cfg2.participation ? "pts-half" : "pts-part"}`}>{pts}</span>
-                  ) : <span className="pts pts-pending">?</span>}
+                  {pts !== null
+                    ? <span className={`pts ${pts === cfg2.exact ? "pts-exact" : pts > cfg2.participation ? "pts-half" : "pts-part"}`}>{pts}</span>
+                    : <span className="pts pts-pending">?</span>}
+                </div>
+                <div style={{ borderTop:"1px solid rgba(255,255,255,0.07)", paddingTop:8 }}>
+                  {allForMatch.map(p => (
+                    <div key={p.uid} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"3px 0", fontSize:13, fontWeight: p.uid === myUid ? 700 : 400, color: p.uid === myUid ? "var(--gold-l)" : "var(--gray-l)" }}>
+                      <span>{p.name}</span>
+                      <span style={{ fontFamily:"'Bebas Neue'", fontSize:15, letterSpacing:1 }}>
+                        {p.pred ? `${p.pred.home ?? "?"}–${p.pred.away ?? "?"}` : <span style={{ opacity:0.4 }}>—</span>}
+                        {p.pts !== null && <span style={{ marginLeft:8, fontSize:12, opacity:0.7 }}>{p.pts}pt</span>}
+                      </span>
+                    </div>
+                  ))}
                 </div>
               </div>
             );
@@ -1395,16 +1423,23 @@ function PronosView({ openMatches, closedMatches, myPreds, allPreds, myUid, dbSe
               <div className="alert alert-info" style={{ marginBottom:14 }}>
                 ⏰ Deadline: {fmtDate(settings.bonusDeadline)}
               </div>
+              <div className="form-group">
+                <label className="form-label">Topscorer WK ({cfg.topScorerExact}pt exact · {cfg.topScorerInTop3}pt in top-3)</label>
+                <input className="form-input" placeholder="bijv. Kylian Mbappé" value={localBonus.topScorer || ""}
+                  onChange={e => setLocalBonus({ ...localBonus, topScorer: e.target.value })} />
+              </div>
               {[
-                ["topScorer", `Topscorer WK (${cfg.topScorerExact}pt exact · ${cfg.topScorerInTop3}pt in top-3)`, "bijv. Kylian Mbappé"],
-                ["winner",    `Winnaar WK (${cfg.winnerPoints}pt)`, "bijv. Brazilië"],
-                ["runnerUp",  `Runner-up / 2e plaats (${cfg.runnerUpPoints}pt)`, "bijv. Frankrijk"],
-                ["third",     `3e plaats (${cfg.thirdPlacePoints}pt)`, "bijv. Engeland"],
-              ].map(([field, label, ph]) => (
+                ["winner",   `Winnaar WK (${cfg.winnerPoints}pt)`],
+                ["runnerUp", `Runner-up / 2e plaats (${cfg.runnerUpPoints}pt)`],
+                ["third",    `3e plaats (${cfg.thirdPlacePoints}pt)`],
+              ].map(([field, label]) => (
                 <div key={field} className="form-group">
                   <label className="form-label">{label}</label>
-                  <input className="form-input" placeholder={ph} value={localBonus[field] || ""}
-                    onChange={e => setLocalBonus({ ...localBonus, [field]: e.target.value })} />
+                  <select className="form-input" value={localBonus[field] || ""}
+                    onChange={e => setLocalBonus({ ...localBonus, [field]: e.target.value })}>
+                    <option value="">— Kies een land —</option>
+                    {WK_TEAMS.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
                 </div>
               ))}
               <button className="btn btn-gold btn-full" onClick={saveBonus} disabled={saving}>
@@ -1459,7 +1494,7 @@ function HallOfFameView() {
       {HALL_OF_FAME.slice().reverse().map(e => (
         <div key={e.edition} className="card card-gold" style={{ marginBottom:12 }}>
           <div style={{ display:"flex", alignItems:"center", gap:12 }}>
-            <span style={{ fontSize:36 }}>{e.flag}</span>
+            <img src={`https://flagcdn.com/w40/${e.code}.png`} alt={e.edition} style={{ width:40, borderRadius:4, flexShrink:0 }} />
             <div>
               <div style={{ fontFamily:"'Bebas Neue'", fontSize:22, color:"var(--gold-l)", letterSpacing:1 }}>{e.edition}</div>
               <div style={{ fontWeight:700, fontSize:16, color:"var(--white)", marginTop:2 }}>{e.winner}</div>
@@ -1923,16 +1958,23 @@ function AdminBonuses({ bonuses, dbSet, showToast, settings }) {
     <div>
       <div className="section-title">Bonusvragen uitslagen</div>
       <div className="card">
+        <div className="form-group">
+          <label className="form-label">Topscorer ({cfg.topScorerExact}pt exact)</label>
+          <input className="form-input" placeholder="bijv. Mbappé" value={form.topScorer || ""}
+            onChange={e => setForm({...form, topScorer: e.target.value})} />
+        </div>
         {[
-          ["topScorer",  `Topscorer (${cfg.topScorerExact}pt exact)`, "bijv. Mbappé"],
-          ["winner",     `Winnaar WK (${cfg.winnerPoints}pt)`, "bijv. Brazilië"],
-          ["runnerUp",   `Runner-up (${cfg.runnerUpPoints}pt)`, "bijv. Spanje"],
-          ["third",      `3e plaats (${cfg.thirdPlacePoints}pt)`, "bijv. Engeland"],
-        ].map(([f,l,p]) => (
+          ["winner",   `Winnaar WK (${cfg.winnerPoints}pt)`],
+          ["runnerUp", `Runner-up (${cfg.runnerUpPoints}pt)`],
+          ["third",    `3e plaats (${cfg.thirdPlacePoints}pt)`],
+        ].map(([f,l]) => (
           <div key={f} className="form-group">
             <label className="form-label">{l}</label>
-            <input className="form-input" placeholder={p} value={form[f] || ""}
-              onChange={e => setForm({...form,[f]:e.target.value})} />
+            <select className="form-input" value={form[f] || ""}
+              onChange={e => setForm({...form,[f]:e.target.value})}>
+              <option value="">— Kies een land —</option>
+              {WK_TEAMS.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
           </div>
         ))}
         <div className="form-group">
