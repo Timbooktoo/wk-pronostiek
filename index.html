@@ -620,6 +620,19 @@
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: rgba(212,175,55,0.25); border-radius: 2px; }
 
+    /* ─── STICKY SAVE BAR ───────────────────────────────────────────────────── */
+    .sticky-save-bar {
+      position: fixed;
+      bottom: calc(58px + env(safe-area-inset-bottom, 0px));
+      left: 50%;
+      transform: translateX(-50%);
+      width: calc(100% - 32px);
+      max-width: 448px;
+      z-index: 99;
+      padding: 10px 0;
+      background: linear-gradient(to top, rgba(7,26,14,1) 60%, transparent 100%);
+    }
+
     /* ─── SAFE AREA ──────────────────────────────────────────────────────────── */
     @supports (padding-bottom: env(safe-area-inset-bottom)) {
       .bottom-nav { padding-bottom: env(safe-area-inset-bottom); }
@@ -792,7 +805,7 @@ const fmtDate = (dt) => {
 // ════════════════════════════════════════════════════════════════════════════
 // APP
 // ════════════════════════════════════════════════════════════════════════════
-const { useState, useEffect, useCallback, useRef } = React;
+const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
 function App() {
   // ── Auth state ──
@@ -1237,9 +1250,22 @@ function PronosView({ openMatches, closedMatches, myPreds, allPreds, myUid, dbSe
   const [localBonus, setLocalBonus] = useState(myBonus || { topScorer:"", winner:"", runnerUp:"", third:"" });
   const [saving,     setSaving]     = useState(false);
 
-  // Sync if myPreds changes from DB
-  useEffect(() => { setLocalPreds(myPreds || {}); }, [JSON.stringify(myPreds)]);
-  useEffect(() => { setLocalBonus(myBonus || { topScorer:"", winner:"", runnerUp:"", third:"" }); }, [JSON.stringify(myBonus)]);
+  // Sync if myPreds/myBonus changes from DB (useRef to avoid JSON.stringify on every keystroke)
+  const prevPreds = useRef(null);
+  useEffect(() => {
+    if (myPreds !== prevPreds.current) {
+      prevPreds.current = myPreds;
+      setLocalPreds(myPreds || {});
+    }
+  }, [myPreds]);
+
+  const prevBonus = useRef(null);
+  useEffect(() => {
+    if (myBonus !== prevBonus.current) {
+      prevBonus.current = myBonus;
+      setLocalBonus(myBonus || { topScorer:"", winner:"", runnerUp:"", third:"" });
+    }
+  }, [myBonus]);
 
   const savePreds = async () => {
     setSaving(true);
@@ -1263,6 +1289,17 @@ function PronosView({ openMatches, closedMatches, myPreds, allPreds, myUid, dbSe
   const bonusDeadline = new Date(settings.bonusDeadline || DEFAULT_SETTINGS.bonusDeadline);
   const bonusClosed = now > bonusDeadline;
   const cfg = { ...DEFAULT_SETTINGS, ...settings };
+
+  // Pre-bereken alle deelnemers per gesloten wedstrijd (Fix 3: useMemo buiten de loop)
+  const participantsByMatch = useMemo(() => {
+    const result = {};
+    closedMatches.forEach(m => {
+      result[m.id] = (participants || [])
+        .map(p => ({ ...p, pred: allPreds?.[p.uid]?.[m.id], pts: allPreds?.[p.uid]?.[m.id] && m.result ? calcPoints(allPreds[p.uid][m.id], m.result, m.phase) : null }))
+        .sort((a,b) => a.name.localeCompare(b.name, "nl"));
+    });
+    return result;
+  }, [closedMatches, participants, allPreds]);
 
   const tabItems = [
     ["open",    `⚽ Open (${openMatches.length})`],
@@ -1309,9 +1346,7 @@ function PronosView({ openMatches, closedMatches, myPreds, allPreds, myUid, dbSe
             );
           })}
           {openMatches.length > 0 && (
-            <button className="btn btn-gold btn-full btn-lg mt-12" onClick={savePreds} disabled={saving}>
-              {saving ? "⏳ Opslaan…" : "💾 Prono's opslaan"}
-            </button>
+            <div style={{ height: 80 }} />
           )}
         </div>
       )}
@@ -1324,9 +1359,7 @@ function PronosView({ openMatches, closedMatches, myPreds, allPreds, myUid, dbSe
             const pred = allPreds?.[myUid]?.[m.id];
             const pts  = pred && m.result ? calcPoints(pred, m.result, m.phase) : null;
             const cfg2 = PHASES[m.phase] || PHASES.group;
-            const allForMatch = (participants || [])
-              .map(p => ({ ...p, pred: allPreds?.[p.uid]?.[m.id], pts: allPreds?.[p.uid]?.[m.id] && m.result ? calcPoints(allPreds[p.uid][m.id], m.result, m.phase) : null }))
-              .sort((a,b) => a.name.localeCompare(b.name, "nl"));
+            const allForMatch = participantsByMatch[m.id] || [];
             return (
               <div key={m.id} className="match-card" style={{ opacity: 0.9 }}>
                 <div className="match-meta">
@@ -1401,6 +1434,14 @@ function PronosView({ openMatches, closedMatches, myPreds, allPreds, myUid, dbSe
       )}
 
       {/* ── BONUS ── */}
+      {tab === "open" && openMatches.length > 0 && (
+        <div className="sticky-save-bar">
+          <button className="btn btn-gold btn-full btn-lg" onClick={savePreds} disabled={saving}>
+            {saving ? "⏳ Opslaan…" : "💾 Prono's opslaan"}
+          </button>
+        </div>
+      )}
+
       {tab === "bonus" && (
         <div>
           {bonusClosed ? (
@@ -1457,9 +1498,12 @@ function PronosView({ openMatches, closedMatches, myPreds, allPreds, myUid, dbSe
 // RANKING VIEW
 // ════════════════════════════════════════════════════════════════════════════
 function RankingView({ participants, allPreds, bonuses, matches, settings, myUid }) {
-  const ranked = [...participants]
-    .map(p => ({ ...p, pts: totalPoints(p.uid, allPreds, bonuses, matches, settings) }))
-    .sort((a,b) => b.pts - a.pts);
+  const ranked = useMemo(() =>
+    [...participants]
+      .map(p => ({ ...p, pts: totalPoints(p.uid, allPreds, bonuses, matches, settings) }))
+      .sort((a,b) => b.pts - a.pts),
+    [participants, allPreds, bonuses, matches, settings]
+  );
 
   const medals = ["🥇","🥈","🥉"];
 
