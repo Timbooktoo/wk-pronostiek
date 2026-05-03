@@ -717,6 +717,7 @@ try {
   firebaseApp = firebase.initializeApp(firebaseConfig);
   auth = firebase.auth();
   db   = firebase.database();
+  auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
 } catch(e) {
   console.error("Firebase init failed:", e);
 }
