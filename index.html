@@ -699,6 +699,14 @@ const PHASES = {
   final:   { name: "Finale",       exact: 100, half: 50, participation: 10 },
 };
 
+const HALL_OF_FAME = [
+  { edition: "EK 2016",  flag: "🇫🇷", winner: "Ik Haat Smurfen",        realName: "Danny Huwé (RIP)" },
+  { edition: "WK 2018",  flag: "🇷🇺", winner: "Pure Magie",              realName: "Ben De Vriendt"   },
+  { edition: "EK 2020",  flag: "🇮🇹", winner: "NogEentje VoorDeLeute",   realName: "Koen Timmerman"   },
+  { edition: "WK 2022",  flag: "🇶🇦", winner: "De Boeckmaker",           realName: "Tim De Boeck"     },
+  { edition: "EK 2024",  flag: "🇩🇪", winner: "Sheik Yerbouti",          realName: "Koen Timmerman"   },
+];
+
 const DEFAULT_SETTINGS = {
   tournamentName:   "WK Pronostiek 2026",
   topScorerExact:   50,
@@ -789,9 +797,10 @@ function App() {
   const [settings,     setSettings]     = useState(DEFAULT_SETTINGS);
 
   // ── UI ──
-  const [view,     setView]     = useState("home");
-  const [adminTab, setAdminTab] = useState("wedstrijden");
-  const [toast,    setToast]    = useState(null);
+  const [view,      setView]     = useState("home");
+  const [adminTab,  setAdminTab] = useState("wedstrijden");
+  const [toast,     setToast]    = useState(null);
+  const [needsName, setNeedsName] = useState(false);
   const toastTimer = useRef(null);
 
   const showToast = useCallback((msg, type = "success") => {
@@ -825,14 +834,15 @@ function App() {
 if (snap.exists()) {
   setParticipant({ uid: u.uid, ...snap.val() });
 } else {
-  const newParticipant = { 
-    uid: u.uid, 
-    name: u.email?.split("@")[0] || "Deelnemer", 
+  const newParticipant = {
+    uid: u.uid,
+    name: u.email?.split("@")[0] || "Deelnemer",
     email: u.email,
     joinedAt: new Date().toISOString()
   };
   await db.ref(`participants/${u.uid}`).set(newParticipant);
   setParticipant(newParticipant);
+  setNeedsName(true);
 }
         } catch {}
       } else {
@@ -866,6 +876,14 @@ if (snap.exists()) {
   const dbPush = (path, val) => db.ref(path).push(val);
   const dbRemove = (path) => db.ref(path).remove();
   const dbUpdate = (path, val) => db.ref(path).update(val);
+
+  const updateName = async (name) => {
+    const trimmed = name.trim();
+    if (!trimmed || !user) return;
+    await dbSet(`participants/${user.uid}/name`, trimmed);
+    setParticipant(p => ({ ...p, name: trimmed }));
+    setNeedsName(false);
+  };
 
   // ════════════════════════════════════════════════════════════════════════
   // LOADING
@@ -907,6 +925,8 @@ if (snap.exists()) {
   // ════════════════════════════════════════════════════════════════════════
   if (!user) return <LoginScreen showToast={showToast} settings={settings} />;
 
+  if (needsName) return <ChooseNameScreen updateName={updateName} defaultName={participant?.name || ""} />;
+
   // ════════════════════════════════════════════════════════════════════════
   // MAIN APP
   // ════════════════════════════════════════════════════════════════════════
@@ -920,10 +940,11 @@ if (snap.exists()) {
   const closedMatches = matches.filter(m => m.date && new Date(m.date) <= now);
 
   const navItems = [
-    { id:"home",    icon:"🏠", label:"Home"     },
-    { id:"pronos",  icon:"⚽", label:"Prono's"  },
-    { id:"ranking", icon:"🏆", label:"Klassement" },
-    { id:"rules",   icon:"📋", label:"Regels"   },
+    { id:"home",    icon:"🏠", label:"Home"      },
+    { id:"pronos",  icon:"⚽", label:"Prono's"   },
+    { id:"ranking", icon:"🏆", label:"Klassement"},
+    { id:"hof",     icon:"🌟", label:"Erelijst"  },
+    { id:"rules",   icon:"📋", label:"Regels"    },
     ...(isAdmin ? [{ id:"admin", icon:"🔐", label:"Admin" }] : []),
   ];
 
@@ -947,9 +968,10 @@ if (snap.exists()) {
 
         {/* Content */}
         <div className="content">
-          {view === "home"    && <HomeView myPoints={myPoints} matches={matches} participants={participants} allPreds={allPreds} bonuses={bonuses} settings={settings} myUid={myUid} setView={setView} participant={participant} user={user} />}
+          {view === "home"    && <HomeView myPoints={myPoints} matches={matches} participants={participants} allPreds={allPreds} bonuses={bonuses} settings={settings} myUid={myUid} setView={setView} participant={participant} user={user} updateName={updateName} />}
           {view === "pronos"  && <PronosView openMatches={openMatches} closedMatches={closedMatches} myPreds={myPreds} allPreds={allPreds} myUid={myUid} dbSet={dbSet} showToast={showToast} bonuses={bonuses} myBonus={myBonus} settings={settings} matches={matches} />}
           {view === "ranking" && <RankingView participants={participants} allPreds={allPreds} bonuses={bonuses} matches={matches} settings={settings} myUid={myUid} />}
+          {view === "hof"     && <HallOfFameView />}
           {view === "rules"   && <RulesView settings={settings} />}
           {view === "admin"   && isAdmin && <AdminView matches={matches} participants={participants} allPreds={allPreds} bonuses={bonuses} settings={settings} dbSet={dbSet} dbPush={dbPush} dbRemove={dbRemove} dbUpdate={dbUpdate} showToast={showToast} adminTab={adminTab} setAdminTab={setAdminTab} auth={auth} />}
         </div>
@@ -1045,9 +1067,50 @@ function LoginScreen({ showToast, settings }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
+// CHOOSE NAME SCREEN
+// ════════════════════════════════════════════════════════════════════════════
+function ChooseNameScreen({ updateName, defaultName }) {
+  const [name, setName] = useState(defaultName);
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    if (!name.trim()) return;
+    setSaving(true);
+    await updateName(name.trim());
+    setSaving(false);
+  };
+
+  return (
+    <div className="login-screen">
+      <div className="login-box">
+        <span className="login-trophy">👤</span>
+        <div className="login-title">Kies je naam</div>
+        <div className="login-sub">Zo verschijn je in het klassement</div>
+        <div className="form-group">
+          <input
+            className="form-input"
+            placeholder="Jouw naam"
+            value={name}
+            maxLength={30}
+            onChange={e => setName(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && save()}
+            autoFocus
+          />
+        </div>
+        <button className="btn btn-gold btn-full" onClick={save} disabled={!name.trim() || saving}>
+          {saving ? "Opslaan…" : "Bevestigen"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════════════
 // HOME VIEW
 // ════════════════════════════════════════════════════════════════════════════
-function HomeView({ myPoints, matches, participants, allPreds, bonuses, settings, myUid, setView, participant, user }) {
+function HomeView({ myPoints, matches, participants, allPreds, bonuses, settings, myUid, setView, participant, user, updateName }) {
+  const [editingName, setEditingName] = useState(false);
+  const [nameInput,   setNameInput]   = useState(participant?.name || "");
   const ranked = [...participants]
     .map(p => ({ ...p, pts: totalPoints(p.uid, allPreds, bonuses, matches, settings) }))
     .sort((a,b) => b.pts - a.pts);
@@ -1123,9 +1186,30 @@ function HomeView({ myPoints, matches, participants, allPreds, bonuses, settings
         </>
       )}
 
-      {/* Logout */}
+      {/* Name edit */}
       <div className="divider" />
-      <button className="btn btn-ghost btn-full" onClick={() => auth.signOut()}>
+      {editingName ? (
+        <div className="card" style={{ padding:"12px 16px" }}>
+          <div className="form-group mb-0">
+            <label className="form-label">Jouw naam</label>
+            <input className="form-input" value={nameInput} maxLength={30}
+              onChange={e => setNameInput(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && updateName(nameInput).then(() => setEditingName(false))}
+              autoFocus />
+          </div>
+          <div className="flex gap-8 mt-12">
+            <button className="btn btn-gold" onClick={() => updateName(nameInput).then(() => setEditingName(false))} disabled={!nameInput.trim()}>Opslaan</button>
+            <button className="btn btn-ghost" onClick={() => setEditingName(false)}>Annuleer</button>
+          </div>
+        </div>
+      ) : (
+        <button className="btn btn-ghost btn-full" onClick={() => { setNameInput(participant?.name || ""); setEditingName(true); }}>
+          ✏️ Naam wijzigen
+        </button>
+      )}
+
+      {/* Logout */}
+      <button className="btn btn-ghost btn-full" style={{ marginTop:8 }} onClick={() => auth.signOut()}>
         🚪 Uitloggen
       </button>
     </div>
@@ -1366,6 +1450,29 @@ function RankingView({ participants, allPreds, bonuses, matches, settings, myUid
 }
 
 // ════════════════════════════════════════════════════════════════════════════
+// HALL OF FAME VIEW
+// ════════════════════════════════════════════════════════════════════════════
+function HallOfFameView() {
+  return (
+    <div>
+      <div className="section-title">Erelijst</div>
+      {HALL_OF_FAME.slice().reverse().map(e => (
+        <div key={e.edition} className="card card-gold" style={{ marginBottom:12 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+            <span style={{ fontSize:36 }}>{e.flag}</span>
+            <div>
+              <div style={{ fontFamily:"'Bebas Neue'", fontSize:22, color:"var(--gold-l)", letterSpacing:1 }}>{e.edition}</div>
+              <div style={{ fontWeight:700, fontSize:16, color:"var(--white)", marginTop:2 }}>{e.winner}</div>
+              <div style={{ fontSize:13, color:"var(--gray-l)", marginTop:1 }}>{e.realName}</div>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════════════
 // RULES VIEW
 // ════════════════════════════════════════════════════════════════════════════
 function RulesView({ settings }) {
@@ -1468,7 +1575,7 @@ function AdminView({ matches, participants, allPreds, bonuses, settings, dbSet, 
         ))}
       </div>
 
-      {adminTab === "wedstrijden"  && <AdminMatches  matches={matches} dbPush={dbPush} dbRemove={dbRemove} showToast={showToast} />}
+      {adminTab === "wedstrijden"  && <AdminMatches  matches={matches} dbPush={dbPush} dbRemove={dbRemove} dbUpdate={dbUpdate} showToast={showToast} />}
       {adminTab === "uitslagen"    && <AdminResults  matches={matches} dbSet={dbSet} showToast={showToast} />}
       {adminTab === "deelnemers"   && <AdminParticipants participants={participants} allPreds={allPreds} bonuses={bonuses} matches={matches} settings={settings} dbSet={dbSet} dbRemove={dbRemove} showToast={showToast} auth={auth} />}
       {adminTab === "bonusvragen"  && <AdminBonuses  bonuses={bonuses} dbSet={dbSet} showToast={showToast} settings={settings} />}
@@ -1478,21 +1585,24 @@ function AdminView({ matches, participants, allPreds, bonuses, settings, dbSet, 
 }
 
 // ── ADMIN: MATCHES ───────────────────────────────────────────────────────────
-function AdminMatches({ matches, dbPush, dbRemove, showToast }) {
+function AdminMatches({ matches, dbPush, dbRemove, dbUpdate, showToast }) {
   const blank = { home:"", away:"", date:"", group:"", phase:"group" };
   const [form, setForm] = useState(blank);
+  const [importPreview, setImportPreview] = useState(null);
+  const [importing, setImporting] = useState(false);
+  const [editId, setEditId] = useState(null);
+  const [editForm, setEditForm] = useState(blank);
+  const fileRef = useRef(null);
 
   const add = async () => {
     if (!form.home.trim() || !form.away.trim()) { showToast("Vul beide ploegen in", "error"); return; }
     const id = Date.now().toString();
     await dbPush("matches", { ...form, id, result: null });
-    // Firebase push gives random key, but we embed id in value too
     setForm(blank);
     showToast("Wedstrijd toegevoegd ✓");
   };
 
   const remove = async (id) => {
-    // Find firebase key
     const ref = firebase.database().ref("matches");
     const snap = await ref.once("value");
     snap.forEach(child => {
@@ -1501,9 +1611,88 @@ function AdminMatches({ matches, dbPush, dbRemove, showToast }) {
     showToast("Wedstrijd verwijderd", "error");
   };
 
+  const startEdit = (m) => {
+    setEditId(m.id);
+    setEditForm({ home: m.home, away: m.away, date: m.date || "", group: m.group || "", phase: m.phase || "group" });
+  };
+
+  const saveEdit = async () => {
+    const ref = firebase.database().ref("matches");
+    const snap = await ref.once("value");
+    snap.forEach(child => {
+      if (child.val().id === editId) ref.child(child.key).update(editForm);
+    });
+    setEditId(null);
+    showToast("Wedstrijd opgeslagen ✓");
+  };
+
+  const onFileChange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target.result);
+        if (!Array.isArray(data)) throw new Error("JSON moet een array zijn");
+        const valid = data.filter(m => m.home && m.away);
+        if (valid.length === 0) throw new Error("Geen geldige wedstrijden gevonden");
+        setImportPreview(valid);
+      } catch(err) {
+        showToast("Ongeldig bestand: " + err.message, "error");
+        setImportPreview(null);
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const doImport = async () => {
+    if (!importPreview) return;
+    setImporting(true);
+    try {
+      for (let i = 0; i < importPreview.length; i++) {
+        const m = importPreview[i];
+        const id = (Date.now() + i).toString();
+        await dbPush("matches", {
+          home:  m.home  || "",
+          away:  m.away  || "",
+          date:  m.date  || "",
+          group: m.group || "",
+          phase: m.phase || "group",
+          id,
+          result: null,
+        });
+      }
+      showToast(`${importPreview.length} wedstrijden geïmporteerd ✓`);
+      setImportPreview(null);
+      if (fileRef.current) fileRef.current.value = "";
+    } catch(err) {
+      showToast("Import mislukt: " + err.message, "error");
+    }
+    setImporting(false);
+  };
+
   return (
     <div>
-      <div className="section-title">Wedstrijd toevoegen</div>
+      <div className="section-title">Bulk import via JSON</div>
+      <div className="card">
+        <div style={{ fontSize:13, color:"var(--gray-l)", marginBottom:10 }}>
+          JSON-formaat: array van objecten met velden <code>home</code>, <code>away</code>, <code>date</code>, <code>group</code>, <code>phase</code>.<br/>
+          Geldige waarden voor <code>phase</code>: <code>group</code>, <code>r32</code>, <code>r16</code>, <code>quarter</code>, <code>semi</code>, <code>third</code>, <code>final</code>.
+        </div>
+        <input ref={fileRef} type="file" accept=".json,application/json" onChange={onFileChange}
+          style={{ fontSize:13, color:"var(--white)", marginBottom:10, display:"block" }} />
+        {importPreview && (
+          <div className="alert alert-warn" style={{ marginBottom:10 }}>
+            <strong>{importPreview.length} wedstrijden</strong> klaar om te importeren.
+            Eerste: {importPreview[0].home} — {importPreview[0].away}
+          </div>
+        )}
+        <button className="btn btn-gold" onClick={doImport} disabled={!importPreview || importing}>
+          {importing ? "Bezig…" : `Importeer${importPreview ? ` (${importPreview.length})` : ""}`}
+        </button>
+      </div>
+
+      <div className="section-title">Wedstrijd manueel toevoegen</div>
       <div className="card">
         <div className="grid-2" style={{ marginBottom:10 }}>
           {[["home","Thuisploeg","bijv. België"],["away","Uitploeg","bijv. Nederland"]].map(([f,l,p]) => (
@@ -1534,16 +1723,50 @@ function AdminMatches({ matches, dbPush, dbRemove, showToast }) {
       {matches.length === 0 && <div className="empty"><div className="empty-icon">📭</div><div className="empty-text">Geen wedstrijden</div></div>}
       {matches.map(m => (
         <div key={m.id} className="match-card">
-          <div className="flex justify-between items-center">
+          {editId === m.id ? (
             <div>
-              <div className="flex items-center gap-8">
-                <span style={{ fontWeight:700, fontSize:15 }}>{m.home} — {m.away}</span>
-                <span className="phase-pill">{PHASES[m.phase]?.name}</span>
+              <div className="grid-2" style={{ marginBottom:10 }}>
+                {[["home","Thuisploeg"],["away","Uitploeg"]].map(([f,l]) => (
+                  <div key={f} className="form-group mb-0">
+                    <label className="form-label">{l}</label>
+                    <input className="form-input" value={editForm[f]} onChange={e => setEditForm({...editForm,[f]:e.target.value})} />
+                  </div>
+                ))}
+                <div className="form-group mb-0">
+                  <label className="form-label">Datum & tijd</label>
+                  <input className="form-input" type="datetime-local" value={editForm.date} onChange={e => setEditForm({...editForm,date:e.target.value})} />
+                </div>
+                <div className="form-group mb-0">
+                  <label className="form-label">Groep</label>
+                  <input className="form-input" placeholder="bijv. Groep A" value={editForm.group} onChange={e => setEditForm({...editForm,group:e.target.value})} />
+                </div>
               </div>
-              <div className="text-xs text-gray mt-8">{m.group && `${m.group} · `}{fmtDate(m.date)}</div>
+              <div className="form-group mb-0">
+                <label className="form-label">Fase</label>
+                <select className="form-input" value={editForm.phase} onChange={e => setEditForm({...editForm,phase:e.target.value})}>
+                  {Object.entries(PHASES).map(([k,v]) => <option key={k} value={k}>{v.name} — exact {v.exact}pt</option>)}
+                </select>
+              </div>
+              <div className="flex gap-8 mt-12">
+                <button className="btn btn-gold" onClick={saveEdit}>Opslaan</button>
+                <button className="btn" onClick={() => setEditId(null)}>Annuleer</button>
+              </div>
             </div>
-            <button className="btn btn-danger btn-sm" onClick={() => remove(m.id)}>✕</button>
-          </div>
+          ) : (
+            <div className="flex justify-between items-center">
+              <div>
+                <div className="flex items-center gap-8">
+                  <span style={{ fontWeight:700, fontSize:15 }}>{m.home} — {m.away}</span>
+                  <span className="phase-pill">{PHASES[m.phase]?.name}</span>
+                </div>
+                <div className="text-xs text-gray mt-8">{m.group && `${m.group} · `}{fmtDate(m.date)}</div>
+              </div>
+              <div className="flex gap-8">
+                <button className="btn btn-sm" onClick={() => startEdit(m)}>✏️</button>
+                <button className="btn btn-danger btn-sm" onClick={() => remove(m.id)}>✕</button>
+              </div>
+            </div>
+          )}
         </div>
       ))}
     </div>
