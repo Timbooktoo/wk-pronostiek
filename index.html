@@ -1,0 +1,1792 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#0a2e1a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>WK Pronostiek 2026</title>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@600;700;800&display=swap" rel="stylesheet">
+
+  <!-- Firebase SDKs (v10 modular via CDN compat) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+
+  <!-- React -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    /* ─── RESET & ROOT ─────────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --g-dark:   #071a0e;
+      --g-mid:    #0f3d1f;
+      --g-bright: #1a6b38;
+      --g-field:  #1d5c2e;
+      --gold:     #d4af37;
+      --gold-l:   #f0d060;
+      --gold-d:   #8a6f1a;
+      --gold-dim: rgba(212,175,55,0.15);
+      --white:    #f4efe3;
+      --gray:     #7a9080;
+      --gray-l:   #b0c0b4;
+      --red:      #c0392b;
+      --shadow:   0 8px 32px rgba(0,0,0,0.5);
+      --r:        14px;
+      --r-sm:     8px;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--g-dark);
+      background-image:
+        radial-gradient(ellipse 80% 40% at 50% 0%, rgba(26,107,56,0.25) 0%, transparent 60%),
+        radial-gradient(ellipse 60% 30% at 80% 100%, rgba(212,175,55,0.06) 0%, transparent 50%);
+      color: var(--white);
+      font-family: 'Barlow', sans-serif;
+      min-height: 100vh;
+      min-height: 100dvh;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ─── APP SHELL ────────────────────────────────────────────────────────── */
+    #root { min-height: 100vh; min-height: 100dvh; }
+
+    .app {
+      max-width: 480px;
+      margin: 0 auto;
+      padding: 0 0 80px;
+      min-height: 100vh;
+      min-height: 100dvh;
+      position: relative;
+    }
+
+    /* ─── HEADER ───────────────────────────────────────────────────────────── */
+    .header {
+      text-align: center;
+      padding: 36px 20px 20px;
+      position: relative;
+      overflow: hidden;
+    }
+    .header::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(ellipse at 50% -10%, rgba(212,175,55,0.18) 0%, transparent 65%);
+      pointer-events: none;
+    }
+    .header-trophy {
+      font-size: 52px;
+      display: block;
+      margin-bottom: 6px;
+      filter: drop-shadow(0 0 16px rgba(212,175,55,0.7));
+      animation: float 4s ease-in-out infinite;
+    }
+    @keyframes float {
+      0%, 100% { transform: translateY(0); }
+      50%       { transform: translateY(-6px); }
+    }
+    .header-title {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: clamp(30px, 8vw, 48px);
+      letter-spacing: 4px;
+      background: linear-gradient(135deg, var(--gold-l) 0%, var(--gold) 50%, var(--gold-d) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      line-height: 1;
+      margin-bottom: 4px;
+    }
+    .header-sub {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 11px;
+      letter-spacing: 5px;
+      text-transform: uppercase;
+      color: var(--gray);
+      margin-bottom: 2px;
+    }
+    .header-user {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 10px;
+      padding: 5px 14px;
+      border-radius: 20px;
+      background: rgba(212,175,55,0.1);
+      border: 1px solid rgba(212,175,55,0.25);
+      font-size: 13px;
+      color: var(--gold-l);
+      font-family: 'Barlow Condensed', sans-serif;
+      font-weight: 700;
+      letter-spacing: 1px;
+    }
+
+    /* ─── BOTTOM NAV ───────────────────────────────────────────────────────── */
+    .bottom-nav {
+      position: fixed;
+      bottom: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 100%;
+      max-width: 480px;
+      background: rgba(7,26,14,0.96);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-top: 1px solid rgba(212,175,55,0.12);
+      display: flex;
+      z-index: 100;
+      padding-bottom: env(safe-area-inset-bottom, 0px);
+    }
+    .nav-item {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 3px;
+      padding: 10px 4px 8px;
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: var(--gray);
+      transition: color 0.2s;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .nav-item.active { color: var(--gold); }
+    .nav-item .nav-icon { font-size: 20px; line-height: 1; }
+    .nav-item .nav-label {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+    .nav-item.active .nav-icon { filter: drop-shadow(0 0 6px rgba(212,175,55,0.6)); }
+
+    /* ─── CONTENT AREA ─────────────────────────────────────────────────────── */
+    .content { padding: 0 16px; }
+
+    /* ─── SECTION TITLE ────────────────────────────────────────────────────── */
+    .section-title {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 20px;
+      letter-spacing: 3px;
+      color: var(--gold);
+      margin: 20px 0 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .section-title::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: linear-gradient(90deg, rgba(212,175,55,0.35), transparent);
+    }
+
+    /* ─── CARDS ────────────────────────────────────────────────────────────── */
+    .card {
+      background: rgba(255,255,255,0.035);
+      border: 1px solid rgba(212,175,55,0.1);
+      border-radius: var(--r);
+      padding: 16px;
+      margin-bottom: 10px;
+    }
+    .card-dark {
+      background: rgba(0,0,0,0.3);
+      border-color: rgba(255,255,255,0.06);
+    }
+    .card-gold {
+      background: rgba(212,175,55,0.08);
+      border-color: rgba(212,175,55,0.25);
+    }
+
+    /* ─── BUTTONS ──────────────────────────────────────────────────────────── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 12px 20px;
+      border-radius: var(--r-sm);
+      border: none;
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 14px;
+      font-weight: 800;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: all 0.18s;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+    .btn-gold {
+      background: linear-gradient(135deg, var(--gold-l), var(--gold));
+      color: var(--g-dark);
+    }
+    .btn-gold:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(212,175,55,0.4); }
+    .btn-gold:active:not(:disabled) { transform: scale(0.98); }
+    .btn-outline {
+      background: transparent;
+      border: 1.5px solid rgba(212,175,55,0.4);
+      color: var(--gold);
+    }
+    .btn-outline:hover:not(:disabled) { border-color: var(--gold); background: rgba(212,175,55,0.08); }
+    .btn-ghost {
+      background: rgba(255,255,255,0.06);
+      color: var(--white);
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+    .btn-ghost:hover:not(:disabled) { background: rgba(255,255,255,0.1); }
+    .btn-danger {
+      background: rgba(192,57,43,0.12);
+      color: #e57373;
+      border: 1px solid rgba(192,57,43,0.25);
+    }
+    .btn-danger:hover:not(:disabled) { background: rgba(192,57,43,0.22); }
+    .btn-sm { padding: 7px 12px; font-size: 12px; }
+    .btn-lg { padding: 15px 24px; font-size: 16px; }
+    .btn-full { width: 100%; }
+    .btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+    /* ─── FORM ──────────────────────────────────────────────────────────────── */
+    .form-group { margin-bottom: 14px; }
+    .form-label {
+      display: block;
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: var(--gray);
+      margin-bottom: 6px;
+    }
+    .form-input {
+      width: 100%;
+      padding: 12px 14px;
+      background: rgba(0,0,0,0.4);
+      border: 1.5px solid rgba(255,255,255,0.08);
+      border-radius: var(--r-sm);
+      color: var(--white);
+      font-family: 'Barlow', sans-serif;
+      font-size: 16px; /* 16px voorkomt iOS zoom */
+      outline: none;
+      transition: border-color 0.18s;
+      appearance: none;
+      -webkit-appearance: none;
+    }
+    .form-input:focus { border-color: var(--gold); }
+    .form-input::placeholder { color: rgba(255,255,255,0.2); font-size: 15px; }
+    .form-input option { background: #0f3d1f; }
+
+    .score-input {
+      width: 64px;
+      text-align: center;
+      padding: 10px 4px;
+      font-size: 22px !important;
+      font-weight: 700;
+      font-family: 'Bebas Neue', sans-serif;
+    }
+
+    /* ─── MATCH CARD ────────────────────────────────────────────────────────── */
+    .match-card {
+      background: rgba(0,0,0,0.25);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: var(--r);
+      padding: 14px;
+      margin-bottom: 8px;
+      transition: border-color 0.18s;
+    }
+    .match-card:hover { border-color: rgba(212,175,55,0.2); }
+    .match-meta {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 11px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: var(--gray);
+      margin-bottom: 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 8px;
+      border-radius: 20px;
+      font-size: 10px;
+      font-weight: 700;
+      font-family: 'Barlow Condensed', sans-serif;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+    .badge-open   { background: rgba(45,138,78,0.18); color: #5cd47a; border: 1px solid rgba(76,175,80,0.25); }
+    .badge-closed { background: rgba(192,57,43,0.12); color: #ef9a9a; border: 1px solid rgba(229,115,115,0.25); }
+    .badge-result { background: rgba(212,175,55,0.12); color: var(--gold); border: 1px solid rgba(212,175,55,0.25); }
+
+    .teams-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .team-name {
+      flex: 1;
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      line-height: 1.2;
+    }
+    .team-name.home { text-align: right; }
+    .team-name.away { text-align: left; }
+    .vs-sep {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 12px;
+      color: var(--gray);
+      letter-spacing: 2px;
+      min-width: 16px;
+      text-align: center;
+    }
+    .score-display {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 26px;
+      color: var(--gold-l);
+      letter-spacing: 2px;
+      min-width: 64px;
+      text-align: center;
+      line-height: 1;
+    }
+
+    /* ─── POINTS BADGE ──────────────────────────────────────────────────────── */
+    .pts {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 17px;
+      flex-shrink: 0;
+    }
+    .pts-exact   { background: rgba(212,175,55,0.2);  color: var(--gold-l); border: 1.5px solid var(--gold-d); }
+    .pts-half    { background: rgba(76,175,80,0.15);  color: #81c784; border: 1.5px solid rgba(76,175,80,0.3); }
+    .pts-part    { background: rgba(229,115,115,0.1); color: #ef9a9a; border: 1.5px solid rgba(229,115,115,0.2); }
+    .pts-pending { background: rgba(255,255,255,0.05); color: var(--gray); border: 1.5px solid rgba(255,255,255,0.1); }
+
+    /* ─── RANKING ───────────────────────────────────────────────────────────── */
+    .rank-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 14px;
+      border-radius: var(--r);
+      background: rgba(0,0,0,0.2);
+      margin-bottom: 6px;
+      border: 1px solid rgba(255,255,255,0.05);
+      transition: all 0.18s;
+    }
+    .rank-row.r1 { background: rgba(212,175,55,0.08); border-color: rgba(212,175,55,0.25); }
+    .rank-row.r2 { background: rgba(192,192,192,0.06); border-color: rgba(192,192,192,0.15); }
+    .rank-row.r3 { background: rgba(180,100,50,0.07); border-color: rgba(205,127,50,0.15); }
+    .rank-num {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 22px;
+      width: 28px;
+      text-align: center;
+      color: var(--gray);
+    }
+    .rank-medal { font-size: 22px; width: 28px; text-align: center; }
+    .rank-name { flex: 1; font-size: 16px; font-weight: 600; }
+    .rank-pts-wrap { text-align: right; }
+    .rank-pts {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 26px;
+      color: var(--gold-l);
+      letter-spacing: 1px;
+      line-height: 1;
+    }
+    .rank-pts-label {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 10px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: var(--gray);
+    }
+
+    /* ─── ALERTS ────────────────────────────────────────────────────────────── */
+    .alert {
+      padding: 12px 14px;
+      border-radius: var(--r-sm);
+      font-size: 14px;
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      margin-bottom: 12px;
+      line-height: 1.4;
+    }
+    .alert-success { background: rgba(76,175,80,0.1); border: 1px solid rgba(76,175,80,0.25); color: #81c784; }
+    .alert-error   { background: rgba(229,115,115,0.1); border: 1px solid rgba(229,115,115,0.25); color: #ef9a9a; }
+    .alert-info    { background: rgba(212,175,55,0.08); border: 1px solid rgba(212,175,55,0.2); color: var(--gold); }
+    .alert-warn    { background: rgba(255,152,0,0.1); border: 1px solid rgba(255,152,0,0.25); color: #ffb74d; }
+
+    /* ─── TOAST ─────────────────────────────────────────────────────────────── */
+    .toast {
+      position: fixed;
+      top: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 200;
+      padding: 12px 20px;
+      border-radius: 24px;
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      white-space: nowrap;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+      animation: slideDown 0.3s ease;
+    }
+    @keyframes slideDown {
+      from { opacity: 0; transform: translateX(-50%) translateY(-12px); }
+      to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+    }
+    .toast-success { background: rgba(76,175,80,0.95); color: #fff; }
+    .toast-error   { background: rgba(192,57,43,0.95); color: #fff; }
+    .toast-info    { background: rgba(212,175,55,0.95); color: var(--g-dark); }
+
+    /* ─── LOADING ───────────────────────────────────────────────────────────── */
+    .loading-screen {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      gap: 16px;
+      color: var(--gold);
+    }
+    .spinner {
+      width: 44px;
+      height: 44px;
+      border: 3px solid rgba(212,175,55,0.15);
+      border-top-color: var(--gold);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ─── LOGIN SCREEN ──────────────────────────────────────────────────────── */
+    .login-screen {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 24px;
+    }
+    .login-box {
+      width: 100%;
+      max-width: 380px;
+      text-align: center;
+    }
+    .login-trophy {
+      font-size: 64px;
+      display: block;
+      margin-bottom: 8px;
+      filter: drop-shadow(0 0 20px rgba(212,175,55,0.6));
+      animation: float 4s ease-in-out infinite;
+    }
+    .login-title {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 42px;
+      letter-spacing: 4px;
+      background: linear-gradient(135deg, var(--gold-l), var(--gold), var(--gold-d));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      line-height: 1;
+      margin-bottom: 6px;
+    }
+    .login-sub {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 12px;
+      letter-spacing: 4px;
+      text-transform: uppercase;
+      color: var(--gray);
+      margin-bottom: 32px;
+    }
+
+    /* ─── STATS ROW ─────────────────────────────────────────────────────────── */
+    .stats-row {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .stat-box {
+      flex: 1;
+      background: rgba(0,0,0,0.3);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: var(--r-sm);
+      padding: 10px 6px;
+      text-align: center;
+    }
+    .stat-num {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 26px;
+      color: var(--gold-l);
+      line-height: 1;
+    }
+    .stat-label {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 10px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: var(--gray);
+      margin-top: 2px;
+    }
+
+    /* ─── TABS ──────────────────────────────────────────────────────────────── */
+    .tab-bar {
+      display: flex;
+      background: rgba(0,0,0,0.3);
+      border-radius: 10px;
+      padding: 4px;
+      gap: 4px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+    .tab {
+      flex: 1;
+      min-width: 60px;
+      padding: 8px 8px;
+      border-radius: 8px;
+      border: none;
+      background: transparent;
+      color: var(--gray);
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: all 0.18s;
+      text-align: center;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .tab.active {
+      background: linear-gradient(135deg, var(--gold-l), var(--gold));
+      color: var(--g-dark);
+    }
+
+    /* ─── EMPTY STATE ────────────────────────────────────────────────────────── */
+    .empty {
+      text-align: center;
+      padding: 40px 20px;
+      color: var(--gray);
+    }
+    .empty-icon { font-size: 36px; margin-bottom: 10px; }
+    .empty-text { font-size: 15px; }
+
+    /* ─── MISC ──────────────────────────────────────────────────────────────── */
+    .divider { height: 1px; background: rgba(255,255,255,0.06); margin: 14px 0; }
+    .mt-8  { margin-top: 8px; }
+    .mt-12 { margin-top: 12px; }
+    .mt-16 { margin-top: 16px; }
+    .mb-0  { margin-bottom: 0; }
+    .flex  { display: flex; }
+    .flex-col { flex-direction: column; }
+    .items-center { align-items: center; }
+    .justify-between { justify-content: space-between; }
+    .gap-6 { gap: 6px; }
+    .gap-8 { gap: 8px; }
+    .text-gold  { color: var(--gold); }
+    .text-gray  { color: var(--gray); }
+    .text-small { font-size: 13px; }
+    .text-xs    { font-size: 11px; }
+    .font-bold  { font-weight: 700; }
+    .text-right { text-align: right; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+    /* ─── SCROLLBAR ──────────────────────────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(212,175,55,0.25); border-radius: 2px; }
+
+    /* ─── SAFE AREA ──────────────────────────────────────────────────────────── */
+    @supports (padding-bottom: env(safe-area-inset-bottom)) {
+      .bottom-nav { padding-bottom: env(safe-area-inset-bottom); }
+    }
+
+    /* ─── ADMIN TABLE ────────────────────────────────────────────────────────── */
+    .admin-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    .admin-table th {
+      text-align: left;
+      padding: 6px 8px;
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 11px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: var(--gray);
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+    .admin-table td {
+      padding: 10px 8px;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+      vertical-align: middle;
+    }
+    .admin-table tr:last-child td { border-bottom: none; }
+
+    /* ─── PHASE PILL ─────────────────────────────────────────────────────────── */
+    .phase-pill {
+      display: inline-flex;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      background: rgba(212,175,55,0.1);
+      color: var(--gold);
+      border: 1px solid rgba(212,175,55,0.2);
+    }
+
+    @media (max-width: 380px) {
+      .grid-2 { grid-template-columns: 1fr; }
+      .team-name { font-size: 13px; }
+    }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+// ════════════════════════════════════════════════════════════════════════════
+// FIREBASE CONFIGURATIE
+// Vervang onderstaande config met jouw Firebase project config
+// Stap: https://console.firebase.google.com → Project Settings → Web app
+// ════════════════════════════════════════════════════════════════════════════
+const firebaseConfig = {
+    apiKey: "AIzaSyA2weBDqcjB6OQcAhU1rCWRI7TqIIARTO0",
+    authDomain: "pronostiek-cd13c.firebaseapp.com",
+    databaseURL: "https://pronostiek-cd13c-default-rtdb.europe-west1.firebasedatabase.app",
+    projectId: "pronostiek-cd13c",
+    storageBucket: "pronostiek-cd13c.firebasestorage.app",
+    messagingSenderId: "562217616301",
+    appId: "1:562217616301:web:cd18c911a6ec761fcd9724",
+    measurementId: "G-HRNXWR92TC"
+  };
+
+// ════════════════════════════════════════════════════════════════════════════
+// CONSTANTEN
+// ════════════════════════════════════════════════════════════════════════════
+const ADMIN_EMAIL = "deboeckt@gmail.com"; // ← AANPASSEN
+
+const PHASES = {
+  group:   { name: "Groepsfase",   exact: 10,  half: 5,  participation: 1  },
+  r32:     { name: "Laatste 32",   exact: 20,  half: 10, participation: 2  },
+  r16:     { name: "Laatste 16",   exact: 30,  half: 15, participation: 3  },
+  quarter: { name: "Kwartfinale",  exact: 40,  half: 20, participation: 4  },
+  semi:    { name: "Halve finale", exact: 50,  half: 25, participation: 5  },
+  third:   { name: "3e Plaatsfinale", exact: 50, half: 25, participation: 5 },
+  final:   { name: "Finale",       exact: 100, half: 50, participation: 10 },
+};
+
+const DEFAULT_SETTINGS = {
+  tournamentName:   "WK Pronostiek 2026",
+  topScorerExact:   50,
+  topScorerInTop3:  20,
+  winnerPoints:     100,
+  runnerUpPoints:   50,
+  thirdPlacePoints: 25,
+  bonusDeadline:    "2026-06-11T21:00",
+};
+
+// ════════════════════════════════════════════════════════════════════════════
+// FIREBASE INIT
+// ════════════════════════════════════════════════════════════════════════════
+let firebaseApp, auth, db;
+try {
+  firebaseApp = firebase.initializeApp(firebaseConfig);
+  auth = firebase.auth();
+  db   = firebase.database();
+} catch(e) {
+  console.error("Firebase init failed:", e);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// UTILS
+// ════════════════════════════════════════════════════════════════════════════
+const calcPoints = (pred, result, phase) => {
+  if (!result || result.home === "" || result.away === "") return null;
+  const ph = parseInt(pred.home), pa = parseInt(pred.away);
+  const rh = parseInt(result.home), ra = parseInt(result.away);
+  if (isNaN(ph) || isNaN(pa)) return null;
+  const cfg = PHASES[phase] || PHASES.group;
+  if (ph === rh && pa === ra) return cfg.exact;
+  const pw = ph > pa ? "h" : ph < pa ? "a" : "d";
+  const rw = rh > ra ? "h" : rh < ra ? "a" : "d";
+  if (pw === rw) return cfg.half;
+  return cfg.participation;
+};
+
+const totalPoints = (uid, allPreds, bonuses, matches, settings) => {
+  let total = 0;
+  const cfg = { ...DEFAULT_SETTINGS, ...settings };
+  (matches || []).forEach(m => {
+    const pred = allPreds?.[uid]?.[m.id];
+    if (pred && m.result) {
+      const pts = calcPoints(pred, m.result, m.phase);
+      if (pts !== null) total += pts;
+    }
+  });
+  const ub = bonuses?.[uid];
+  const br = bonuses?.results;
+  if (ub && br) {
+    if (ub.topScorer && br.topScorer) {
+      if (ub.topScorer === br.topScorer) total += cfg.topScorerExact;
+      else if (br.topScorerTop3?.includes(ub.topScorer)) total += cfg.topScorerInTop3;
+    }
+    if (ub.winner   && br.winner   && ub.winner   === br.winner)   total += cfg.winnerPoints;
+    if (ub.runnerUp && br.runnerUp && ub.runnerUp === br.runnerUp) total += cfg.runnerUpPoints;
+    if (ub.third    && br.third    && ub.third    === br.third)     total += cfg.thirdPlacePoints;
+  }
+  return total;
+};
+
+const fmtDate = (dt) => {
+  if (!dt) return "";
+  try {
+    return new Date(dt).toLocaleString("nl-BE", { weekday:"short", day:"numeric", month:"short", hour:"2-digit", minute:"2-digit" });
+  } catch { return dt; }
+};
+
+// ════════════════════════════════════════════════════════════════════════════
+// APP
+// ════════════════════════════════════════════════════════════════════════════
+const { useState, useEffect, useCallback, useRef } = React;
+
+function App() {
+  // ── Auth state ──
+  const [authLoading, setAuthLoading] = useState(true);
+  const [user, setUser]               = useState(null);
+  const [isAdmin, setIsAdmin]         = useState(false);
+  const [participant, setParticipant] = useState(null); // {uid, name, email}
+
+  // ── Data ──
+  const [matches,      setMatches]      = useState([]);
+  const [participants, setParticipants] = useState([]);
+  const [allPreds,     setAllPreds]     = useState({});
+  const [bonuses,      setBonuses]      = useState({});
+  const [settings,     setSettings]     = useState(DEFAULT_SETTINGS);
+
+  // ── UI ──
+  const [view,     setView]     = useState("home");
+  const [adminTab, setAdminTab] = useState("wedstrijden");
+  const [toast,    setToast]    = useState(null);
+  const toastTimer = useRef(null);
+
+  const showToast = useCallback((msg, type = "success") => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToast({ msg, type });
+    toastTimer.current = setTimeout(() => setToast(null), 3000);
+  }, []);
+
+  // ── Firebase Auth listener ──
+  useEffect(() => {
+    if (!auth) { setAuthLoading(false); return; }
+
+    // Handle magic link redirect
+    if (auth.isSignInWithEmailLink(window.location.href)) {
+      let email = window.localStorage.getItem("wk_email_for_signin");
+      if (!email) email = window.prompt("Bevestig je e-mailadres:");
+      if (email) {
+        auth.signInWithEmailLink(email, window.location.href)
+          .then(() => { window.localStorage.removeItem("wk_email_for_signin"); window.history.replaceState({}, document.title, "/"); })
+          .catch(e => showToast("Login mislukt: " + e.message, "error"));
+      }
+    }
+
+    const unsub = auth.onAuthStateChanged(async u => {
+      setUser(u);
+      if (u) {
+        setIsAdmin(u.email === ADMIN_EMAIL);
+        // Load participant record
+        try {
+          const snap = await db.ref(`participants/${u.uid}`).get();
+          if (snap.exists()) setParticipant({ uid: u.uid, ...snap.val() });
+          else setParticipant({ uid: u.uid, name: u.email?.split("@")[0] || "Deelnemer", email: u.email });
+        } catch {}
+      } else {
+        setIsAdmin(false);
+        setParticipant(null);
+      }
+      setAuthLoading(false);
+    });
+    return () => unsub();
+  }, []);
+
+  // ── Realtime database listeners ──
+  useEffect(() => {
+    if (!db || !user) return;
+    const refs = [];
+    const on = (path, setter, transform) => {
+      const r = db.ref(path);
+      refs.push(r);
+      r.on("value", snap => setter(transform ? transform(snap.val()) : (snap.val() || {})));
+    };
+    on("matches",      setMatches,      v => v ? Object.values(v) : []);
+    on("participants", setParticipants, v => v ? Object.values(v) : []);
+    on("predictions",  setAllPreds,     null);
+    on("bonuses",      setBonuses,      null);
+    on("settings",     s => setSettings({ ...DEFAULT_SETTINGS, ...(s || {}) }), null);
+    return () => refs.forEach(r => r.off());
+  }, [user]);
+
+  // ── DB helpers ──
+  const dbSet  = (path, val) => db.ref(path).set(val);
+  const dbPush = (path, val) => db.ref(path).push(val);
+  const dbRemove = (path) => db.ref(path).remove();
+  const dbUpdate = (path, val) => db.ref(path).update(val);
+
+  // ════════════════════════════════════════════════════════════════════════
+  // LOADING
+  // ════════════════════════════════════════════════════════════════════════
+  if (authLoading) return (
+    <div className="loading-screen">
+      <div className="spinner" />
+      <span style={{ fontFamily:"'Barlow Condensed'", letterSpacing:3, fontSize:13, textTransform:"uppercase" }}>Laden…</span>
+    </div>
+  );
+
+  // ════════════════════════════════════════════════════════════════════════
+  // NOT CONFIGURED
+  // ════════════════════════════════════════════════════════════════════════
+  if (firebaseConfig.apiKey === "JOUW_API_KEY") return (
+    <div className="login-screen">
+      <div className="login-box">
+        <span className="login-trophy">⚙️</span>
+        <div className="login-title" style={{ fontSize: 28, marginBottom: 12 }}>Setup Vereist</div>
+        <div className="alert alert-warn" style={{ textAlign:"left" }}>
+          <div>
+            <strong>Configureer Firebase:</strong><br/>
+            <ol style={{ paddingLeft:16, marginTop:6, lineHeight:1.8, fontSize:13 }}>
+              <li>Maak project aan op <strong>console.firebase.google.com</strong></li>
+              <li>Activeer <strong>Realtime Database</strong> (Europe West)</li>
+              <li>Activeer <strong>Authentication → Email Link</strong></li>
+              <li>Voeg web app toe → kopieer <code>firebaseConfig</code></li>
+              <li>Vervang config bovenaan dit bestand</li>
+              <li>Stel <strong>ADMIN_EMAIL</strong> in op jouw e-mail</li>
+            </ol>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  // ════════════════════════════════════════════════════════════════════════
+  // LOGIN SCREEN (niet ingelogd)
+  // ════════════════════════════════════════════════════════════════════════
+  if (!user) return <LoginScreen showToast={showToast} settings={settings} />;
+
+  // ════════════════════════════════════════════════════════════════════════
+  // MAIN APP
+  // ════════════════════════════════════════════════════════════════════════
+  const myUid    = user.uid;
+  const myPreds  = allPreds?.[myUid] || {};
+  const myBonus  = bonuses?.[myUid] || {};
+  const myPoints = totalPoints(myUid, allPreds, bonuses, matches, settings);
+  const now      = new Date();
+
+  const openMatches   = matches.filter(m => !m.date || new Date(m.date) > now);
+  const closedMatches = matches.filter(m => m.date && new Date(m.date) <= now);
+
+  const navItems = [
+    { id:"home",    icon:"🏠", label:"Home"     },
+    { id:"pronos",  icon:"⚽", label:"Prono's"  },
+    { id:"ranking", icon:"🏆", label:"Klassement" },
+    { id:"rules",   icon:"📋", label:"Regels"   },
+    ...(isAdmin ? [{ id:"admin", icon:"🔐", label:"Admin" }] : []),
+  ];
+
+  return (
+    <div>
+      {/* Toast */}
+      {toast && <div className={`toast toast-${toast.type}`}>{toast.msg}</div>}
+
+      <div className="app">
+        {/* Header */}
+        <div className="header">
+          <span className="header-trophy">🏆</span>
+          <h1 className="header-title">{settings.tournamentName || "WK Pronostiek"}</h1>
+          <div className="header-sub">Pronostiek · 2026</div>
+          <div className="header-user">
+            👤 {participant?.name || user.email?.split("@")[0]}
+            {isAdmin && " · Admin"}
+            <span style={{ opacity:0.5, marginLeft:4 }}>· {myPoints}pt</span>
+          </div>
+        </div>
+
+        {/* Content */}
+        <div className="content">
+          {view === "home"    && <HomeView myPoints={myPoints} matches={matches} participants={participants} allPreds={allPreds} bonuses={bonuses} settings={settings} myUid={myUid} setView={setView} participant={participant} user={user} />}
+          {view === "pronos"  && <PronosView openMatches={openMatches} closedMatches={closedMatches} myPreds={myPreds} allPreds={allPreds} myUid={myUid} dbSet={dbSet} showToast={showToast} bonuses={bonuses} myBonus={myBonus} settings={settings} matches={matches} />}
+          {view === "ranking" && <RankingView participants={participants} allPreds={allPreds} bonuses={bonuses} matches={matches} settings={settings} myUid={myUid} />}
+          {view === "rules"   && <RulesView settings={settings} />}
+          {view === "admin"   && isAdmin && <AdminView matches={matches} participants={participants} allPreds={allPreds} bonuses={bonuses} settings={settings} dbSet={dbSet} dbPush={dbPush} dbRemove={dbRemove} dbUpdate={dbUpdate} showToast={showToast} adminTab={adminTab} setAdminTab={setAdminTab} auth={auth} />}
+        </div>
+
+        {/* Bottom Nav */}
+        <nav className="bottom-nav">
+          {navItems.map(n => (
+            <button key={n.id} className={`nav-item${view === n.id ? " active" : ""}`} onClick={() => setView(n.id)}>
+              <span className="nav-icon">{n.icon}</span>
+              <span className="nav-label">{n.label}</span>
+            </button>
+          ))}
+        </nav>
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// LOGIN SCREEN
+// ════════════════════════════════════════════════════════════════════════════
+function LoginScreen({ showToast, settings }) {
+  const [email,   setEmail]   = useState("");
+  const [sent,    setSent]    = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  const sendLink = async () => {
+    if (!email.trim() || !email.includes("@")) { showToast("Voer een geldig e-mailadres in", "error"); return; }
+    setLoading(true);
+    try {
+      const actionCodeSettings = {
+        url: window.location.href,
+        handleCodeInApp: true,
+      };
+      await auth.sendSignInLinkToEmail(email.trim(), actionCodeSettings);
+      window.localStorage.setItem("wk_email_for_signin", email.trim());
+      setSent(true);
+      showToast("Link verstuurd! Controleer je inbox", "success");
+    } catch(e) {
+      showToast("Fout: " + e.message, "error");
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div className="login-screen">
+      <div className="login-box">
+        <span className="login-trophy">🏆</span>
+        <div className="login-title">{settings?.tournamentName || "WK Pronostiek 2026"}</div>
+        <div className="login-sub">Pronostiek · 2026</div>
+
+        {!sent ? (
+          <div className="card" style={{ textAlign:"left" }}>
+            <div className="alert alert-info" style={{ marginBottom:16 }}>
+              📧 Je ontvangt een <strong>inloglink</strong> per e-mail. Geen wachtwoord nodig!
+            </div>
+            <div className="form-group mb-0">
+              <label className="form-label">Jouw e-mailadres</label>
+              <input
+                className="form-input"
+                type="email"
+                inputMode="email"
+                autoComplete="email"
+                placeholder="naam@voorbeeld.be"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && sendLink()}
+              />
+            </div>
+            <button className="btn btn-gold btn-full btn-lg mt-12" onClick={sendLink} disabled={loading || !email.trim()}>
+              {loading ? "⏳ Versturen…" : "📧 Stuur inloglink"}
+            </button>
+            <div className="text-xs text-gray" style={{ marginTop:10, textAlign:"center" }}>
+              Eerste keer? Vraag de admin om je toe te voegen.
+            </div>
+          </div>
+        ) : (
+          <div className="card card-gold" style={{ textAlign:"center" }}>
+            <div style={{ fontSize:48, marginBottom:12 }}>📬</div>
+            <div style={{ fontFamily:"'Bebas Neue'", fontSize:24, letterSpacing:2, color:"var(--gold)", marginBottom:8 }}>
+              Link Verstuurd!
+            </div>
+            <p style={{ fontSize:14, color:"var(--gray-l)", lineHeight:1.5 }}>
+              Controleer je inbox op <strong style={{ color:"var(--white)" }}>{email}</strong> en klik op de inloglink.
+            </p>
+            <p className="text-xs text-gray mt-12">Geen mail ontvangen? Controleer je spam of probeer opnieuw.</p>
+            <button className="btn btn-ghost btn-full mt-12" onClick={() => setSent(false)}>↩ Probeer opnieuw</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// HOME VIEW
+// ════════════════════════════════════════════════════════════════════════════
+function HomeView({ myPoints, matches, participants, allPreds, bonuses, settings, myUid, setView, participant, user }) {
+  const ranked = [...participants]
+    .map(p => ({ ...p, pts: totalPoints(p.uid, allPreds, bonuses, matches, settings) }))
+    .sort((a,b) => b.pts - a.pts);
+
+  const myRank      = ranked.findIndex(p => p.uid === myUid) + 1;
+  const completedM  = matches.filter(m => m.result).length;
+  const now         = new Date();
+  const upcoming    = matches.filter(m => m.date && new Date(m.date) > now).slice(0,3);
+  const bonusDeadline = new Date(settings.bonusDeadline || DEFAULT_SETTINGS.bonusDeadline);
+  const bonusOpen   = now < bonusDeadline;
+
+  return (
+    <div>
+      {/* My score card */}
+      <div className="card card-gold" style={{ textAlign:"center", padding:"20px 16px" }}>
+        <div className="text-gray text-xs" style={{ letterSpacing:2, textTransform:"uppercase", marginBottom:4 }}>Jouw score</div>
+        <div style={{ fontFamily:"'Bebas Neue'", fontSize:56, color:"var(--gold-l)", lineHeight:1, letterSpacing:2 }}>{myPoints}</div>
+        <div className="text-gold" style={{ fontFamily:"'Barlow Condensed'", fontSize:13, letterSpacing:2, textTransform:"uppercase" }}>punten</div>
+        {myRank > 0 && (
+          <div style={{ marginTop:8, fontSize:14, color:"var(--gray-l)" }}>
+            #{myRank} van {participants.length} deelnemers
+          </div>
+        )}
+      </div>
+
+      {/* Stats */}
+      <div className="stats-row">
+        <div className="stat-box">
+          <div className="stat-num">{participants.length}</div>
+          <div className="stat-label">Deelnemers</div>
+        </div>
+        <div className="stat-box">
+          <div className="stat-num">{completedM}</div>
+          <div className="stat-label">Gespeeld</div>
+        </div>
+        <div className="stat-box">
+          <div className="stat-num">{matches.length - completedM}</div>
+          <div className="stat-label">Te gaan</div>
+        </div>
+      </div>
+
+      {/* Quick actions */}
+      <div className="section-title">Snelle acties</div>
+      <button className="btn btn-gold btn-full mb-0" style={{ marginBottom:8 }} onClick={() => setView("pronos")}>
+        ⚽ Prono's invullen
+      </button>
+      {bonusOpen && (
+        <button className="btn btn-outline btn-full" style={{ marginBottom:8 }} onClick={() => setView("pronos")}>
+          🏆 Bonusvragen invullen
+        </button>
+      )}
+      <button className="btn btn-ghost btn-full" onClick={() => setView("ranking")}>
+        📊 Bekijk klassement
+      </button>
+
+      {/* Upcoming matches */}
+      {upcoming.length > 0 && (
+        <>
+          <div className="section-title">Volgende wedstrijden</div>
+          {upcoming.map(m => (
+            <div key={m.id} className="match-card">
+              <div className="match-meta">
+                <span>{m.group ? `${m.group} · ` : ""}{PHASES[m.phase]?.name || "Groep"}</span>
+                <span>{fmtDate(m.date)}</span>
+              </div>
+              <div className="teams-row">
+                <span className="team-name home">{m.home}</span>
+                <span className="vs-sep">vs</span>
+                <span className="team-name away">{m.away}</span>
+              </div>
+            </div>
+          ))}
+        </>
+      )}
+
+      {/* Logout */}
+      <div className="divider" />
+      <button className="btn btn-ghost btn-full" onClick={() => auth.signOut()}>
+        🚪 Uitloggen
+      </button>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// PRONOS VIEW
+// ════════════════════════════════════════════════════════════════════════════
+function PronosView({ openMatches, closedMatches, myPreds, allPreds, myUid, dbSet, showToast, bonuses, myBonus, settings, matches }) {
+  const [tab,        setTab]        = useState("open");
+  const [localPreds, setLocalPreds] = useState(myPreds || {});
+  const [localBonus, setLocalBonus] = useState(myBonus || { topScorer:"", winner:"", runnerUp:"", third:"" });
+  const [saving,     setSaving]     = useState(false);
+
+  // Sync if myPreds changes from DB
+  useEffect(() => { setLocalPreds(myPreds || {}); }, [JSON.stringify(myPreds)]);
+  useEffect(() => { setLocalBonus(myBonus || { topScorer:"", winner:"", runnerUp:"", third:"" }); }, [JSON.stringify(myBonus)]);
+
+  const savePreds = async () => {
+    setSaving(true);
+    try {
+      await dbSet(`predictions/${myUid}`, localPreds);
+      showToast("Prono's opgeslagen ✓");
+    } catch(e) { showToast("Fout bij opslaan", "error"); }
+    setSaving(false);
+  };
+
+  const saveBonus = async () => {
+    setSaving(true);
+    try {
+      await dbSet(`bonuses/${myUid}`, localBonus);
+      showToast("Bonusvragen opgeslagen ✓");
+    } catch(e) { showToast("Fout bij opslaan", "error"); }
+    setSaving(false);
+  };
+
+  const now         = new Date();
+  const bonusDeadline = new Date(settings.bonusDeadline || DEFAULT_SETTINGS.bonusDeadline);
+  const bonusClosed = now > bonusDeadline;
+  const cfg = { ...DEFAULT_SETTINGS, ...settings };
+
+  const tabItems = [
+    ["open",    `⚽ Open (${openMatches.length})`],
+    ["closed",  `🔒 Gesloten`],
+    ["results", `📊 Scores`],
+    ["bonus",   `🏆 Bonus`],
+  ];
+
+  return (
+    <div>
+      <div className="tab-bar">
+        {tabItems.map(([key, label]) => (
+          <button key={key} className={`tab${tab === key ? " active" : ""}`} onClick={() => setTab(key)}>{label}</button>
+        ))}
+      </div>
+
+      {/* ── OPEN MATCHES ── */}
+      {tab === "open" && (
+        <div>
+          {openMatches.length === 0 && <div className="empty"><div className="empty-icon">✅</div><div className="empty-text">Alle wedstrijden zijn gesloten</div></div>}
+          {openMatches.map(m => {
+            const pred = localPreds[m.id] || { home:"", away:"" };
+            return (
+              <div key={m.id} className="match-card">
+                <div className="match-meta">
+                  <span>{m.group ? `${m.group} · ` : ""}{PHASES[m.phase]?.name || ""}</span>
+                  <span className="flex items-center gap-6">
+                    <span>{fmtDate(m.date)}</span>
+                    <span className="badge badge-open">Open</span>
+                  </span>
+                </div>
+                <div className="teams-row">
+                  <span className="team-name home">{m.home}</span>
+                  <input className="form-input score-input" type="number" min="0" max="99" inputMode="numeric"
+                    value={pred.home}
+                    onChange={e => setLocalPreds({ ...localPreds, [m.id]: { ...pred, home: e.target.value } })} />
+                  <span className="vs-sep">–</span>
+                  <input className="form-input score-input" type="number" min="0" max="99" inputMode="numeric"
+                    value={pred.away}
+                    onChange={e => setLocalPreds({ ...localPreds, [m.id]: { ...pred, away: e.target.value } })} />
+                  <span className="team-name away">{m.away}</span>
+                </div>
+              </div>
+            );
+          })}
+          {openMatches.length > 0 && (
+            <button className="btn btn-gold btn-full btn-lg mt-12" onClick={savePreds} disabled={saving}>
+              {saving ? "⏳ Opslaan…" : "💾 Prono's opslaan"}
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* ── CLOSED MATCHES ── */}
+      {tab === "closed" && (
+        <div>
+          {closedMatches.length === 0 && <div className="empty"><div className="empty-icon">⏳</div><div className="empty-text">Nog geen gesloten wedstrijden</div></div>}
+          {closedMatches.map(m => {
+            const pred = allPreds?.[myUid]?.[m.id];
+            const pts  = pred && m.result ? calcPoints(pred, m.result, m.phase) : null;
+            const cfg2 = PHASES[m.phase] || PHASES.group;
+            return (
+              <div key={m.id} className="match-card" style={{ opacity: 0.8 }}>
+                <div className="match-meta">
+                  <span>{m.group} · {cfg2.name}</span>
+                  <span className="badge badge-closed">Gesloten</span>
+                </div>
+                <div className="teams-row">
+                  <span className="team-name home" style={{ fontSize:13 }}>{m.home}</span>
+                  <div style={{ textAlign:"center", minWidth:80 }}>
+                    {pred
+                      ? <div style={{ fontFamily:"'Bebas Neue'", fontSize:20, color:"var(--gray-l)" }}>{pred.home || "?"} – {pred.away || "?"}</div>
+                      : <div className="text-gray text-small">geen prono</div>
+                    }
+                    {m.result && <div style={{ fontFamily:"'Bebas Neue'", fontSize:14, color:"var(--gray)", marginTop:2 }}>uitslag: {m.result.home}–{m.result.away}</div>}
+                  </div>
+                  <span className="team-name away" style={{ fontSize:13 }}>{m.away}</span>
+                  {pts !== null ? (
+                    <span className={`pts ${pts === cfg2.exact ? "pts-exact" : pts > cfg2.participation ? "pts-half" : "pts-part"}`}>{pts}</span>
+                  ) : <span className="pts pts-pending">?</span>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ── RESULTS ── */}
+      {tab === "results" && (
+        <div>
+          {matches.filter(m => m.result).length === 0 && <div className="empty"><div className="empty-icon">⏳</div><div className="empty-text">Nog geen uitslagen beschikbaar</div></div>}
+          {matches.filter(m => m.result).map(m => {
+            const pred = allPreds?.[myUid]?.[m.id];
+            const pts  = pred ? calcPoints(pred, m.result, m.phase) : null;
+            const cfg2 = PHASES[m.phase] || PHASES.group;
+            return (
+              <div key={m.id} className="match-card">
+                <div className="flex justify-between items-center" style={{ marginBottom:10 }}>
+                  <span className="text-xs text-gray">{m.group} · {cfg2.name}</span>
+                  {pts !== null
+                    ? <span className={`pts ${pts === cfg2.exact ? "pts-exact" : pts > cfg2.participation ? "pts-half" : "pts-part"}`}>{pts}pt</span>
+                    : <span className="pts pts-pending">?</span>}
+                </div>
+                <div className="teams-row">
+                  <span className="team-name home" style={{ fontSize:13 }}>{m.home}</span>
+                  <div style={{ textAlign:"center", minWidth:100 }}>
+                    <div className="text-xs text-gray" style={{ letterSpacing:1, textTransform:"uppercase", marginBottom:2 }}>uitslag</div>
+                    <div className="score-display">{m.result.home} – {m.result.away}</div>
+                    <div className="text-xs text-gray" style={{ letterSpacing:1, textTransform:"uppercase", marginTop:2 }}>jouw prono</div>
+                    <div style={{ fontFamily:"'Bebas Neue'", fontSize:18, color: pred ? "var(--white)" : "var(--gray)" }}>
+                      {pred ? `${pred.home} – ${pred.away}` : "—"}
+                    </div>
+                  </div>
+                  <span className="team-name away" style={{ fontSize:13 }}>{m.away}</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ── BONUS ── */}
+      {tab === "bonus" && (
+        <div>
+          {bonusClosed ? (
+            <div className="card">
+              <div className="alert alert-error">
+                🔒 Bonusvragen gesloten sinds {fmtDate(settings.bonusDeadline)}
+              </div>
+              {bonuses?.[myUid] && (
+                <div style={{ fontSize:14, lineHeight:1.8 }}>
+                  <div className="text-gray text-xs" style={{ marginBottom:6, textTransform:"uppercase", letterSpacing:1 }}>Jouw keuzes</div>
+                  {bonuses[myUid].topScorer && <div>🥇 Topscorer: <strong>{bonuses[myUid].topScorer}</strong></div>}
+                  {bonuses[myUid].winner    && <div>🏆 Winnaar: <strong>{bonuses[myUid].winner}</strong></div>}
+                  {bonuses[myUid].runnerUp  && <div>🥈 Runner-up: <strong>{bonuses[myUid].runnerUp}</strong></div>}
+                  {bonuses[myUid].third     && <div>🥉 Derde: <strong>{bonuses[myUid].third}</strong></div>}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="card">
+              <div className="alert alert-info" style={{ marginBottom:14 }}>
+                ⏰ Deadline: {fmtDate(settings.bonusDeadline)}
+              </div>
+              {[
+                ["topScorer", `Topscorer WK (${cfg.topScorerExact}pt exact · ${cfg.topScorerInTop3}pt in top-3)`, "bijv. Kylian Mbappé"],
+                ["winner",    `Winnaar WK (${cfg.winnerPoints}pt)`, "bijv. Brazilië"],
+                ["runnerUp",  `Runner-up / 2e plaats (${cfg.runnerUpPoints}pt)`, "bijv. Frankrijk"],
+                ["third",     `3e plaats (${cfg.thirdPlacePoints}pt)`, "bijv. Engeland"],
+              ].map(([field, label, ph]) => (
+                <div key={field} className="form-group">
+                  <label className="form-label">{label}</label>
+                  <input className="form-input" placeholder={ph} value={localBonus[field] || ""}
+                    onChange={e => setLocalBonus({ ...localBonus, [field]: e.target.value })} />
+                </div>
+              ))}
+              <button className="btn btn-gold btn-full" onClick={saveBonus} disabled={saving}>
+                {saving ? "⏳ Opslaan…" : "💾 Bonusvragen opslaan"}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// RANKING VIEW
+// ════════════════════════════════════════════════════════════════════════════
+function RankingView({ participants, allPreds, bonuses, matches, settings, myUid }) {
+  const ranked = [...participants]
+    .map(p => ({ ...p, pts: totalPoints(p.uid, allPreds, bonuses, matches, settings) }))
+    .sort((a,b) => b.pts - a.pts);
+
+  const medals = ["🥇","🥈","🥉"];
+
+  return (
+    <div>
+      <div className="section-title">🏆 Klassement</div>
+      {ranked.length === 0 && <div className="empty"><div className="empty-icon">🏆</div><div className="empty-text">Nog geen deelnemers</div></div>}
+      {ranked.map((p, i) => (
+        <div key={p.uid} className={`rank-row ${i<3 ? `r${i+1}` : ""} ${p.uid === myUid ? "card-gold" : ""}`}>
+          {i < 3
+            ? <span className="rank-medal">{medals[i]}</span>
+            : <span className="rank-num">{i+1}</span>}
+          <span className="rank-name">{p.name || p.email?.split("@")[0]}</span>
+          {p.uid === myUid && <span className="badge badge-open">jij</span>}
+          <div className="rank-pts-wrap">
+            <div className="rank-pts">{p.pts}</div>
+            <div className="rank-pts-label">punten</div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// RULES VIEW
+// ════════════════════════════════════════════════════════════════════════════
+function RulesView({ settings }) {
+  const cfg = { ...DEFAULT_SETTINGS, ...settings };
+  const deadline = new Date(cfg.bonusDeadline);
+
+  return (
+    <div>
+      <div className="section-title">📋 Spelregels</div>
+
+      <div className="card">
+        <div style={{ fontFamily:"'Bebas Neue'", fontSize:20, letterSpacing:2, color:"var(--gold)", marginBottom:10 }}>Puntensysteem</div>
+        <p style={{ fontSize:14, color:"var(--gray-l)", marginBottom:12, lineHeight:1.5 }}>
+          Hoe verder in het toernooi, hoe meer punten. 3 categorieën per wedstrijd:
+        </p>
+        <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
+          <thead>
+            <tr style={{ borderBottom:"1px solid rgba(212,175,55,0.15)" }}>
+              {["Fase","Exact","Winnaar","Fout"].map(h => (
+                <th key={h} style={{ padding:"6px 4px", textAlign: h==="Fase" ? "left" : "center", color:"var(--gray)", fontFamily:"'Barlow Condensed'", textTransform:"uppercase", letterSpacing:1, fontSize:11 }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {Object.entries(PHASES).map(([key, p]) => (
+              <tr key={key} style={{ borderBottom:"1px solid rgba(255,255,255,0.04)" }}>
+                <td style={{ padding:"8px 4px" }}>{p.name}</td>
+                <td style={{ padding:"8px 4px", textAlign:"center", fontFamily:"'Bebas Neue'", fontSize:18, color:"var(--gold)" }}>{p.exact}</td>
+                <td style={{ padding:"8px 4px", textAlign:"center", fontFamily:"'Bebas Neue'", fontSize:18, color:"var(--gold-l)" }}>{p.half}</td>
+                <td style={{ padding:"8px 4px", textAlign:"center", fontFamily:"'Bebas Neue'", fontSize:16, color:"var(--gray)" }}>{p.participation}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="card">
+        <div style={{ fontFamily:"'Bebas Neue'", fontSize:20, letterSpacing:2, color:"var(--gold)", marginBottom:10 }}>🏆 Bonusvragen</div>
+        <div style={{ fontSize:14, lineHeight:2 }}>
+          <div>🥇 Topscorer exact: <strong className="text-gold">{cfg.topScorerExact}pt</strong></div>
+          <div>🎯 Topscorer in top-3: <strong className="text-gold">{cfg.topScorerInTop3}pt</strong></div>
+          <div>🏆 Winnaar WK: <strong className="text-gold">{cfg.winnerPoints}pt</strong></div>
+          <div>🥈 Runner-up: <strong className="text-gold">{cfg.runnerUpPoints}pt</strong></div>
+          <div>🥉 3e plaats: <strong className="text-gold">{cfg.thirdPlacePoints}pt</strong></div>
+        </div>
+        <div className="alert alert-info mt-12">
+          ⏰ Deadline: {deadline.toLocaleString("nl-BE", { weekday:"long", day:"numeric", month:"long", hour:"2-digit", minute:"2-digit" })}
+        </div>
+      </div>
+
+      <div className="card">
+        <div style={{ fontFamily:"'Bebas Neue'", fontSize:20, letterSpacing:2, color:"var(--gold)", marginBottom:10 }}>⚽ Penalties</div>
+        <p style={{ fontSize:14, color:"var(--gray-l)", lineHeight:1.5 }}>
+          Bij penalties in de knockout-fase krijgt de winnaar <strong>+1 doelpunt</strong> bij de officiële score.
+        </p>
+        <div className="card card-dark mt-12" style={{ fontSize:13, lineHeight:1.8 }}>
+          Voorbeeld: 2-2 na verlengingen → Nederland wint penalties<br/>
+          <strong style={{ color:"var(--gold)" }}>→ Officiële score: 3-2</strong>
+        </div>
+      </div>
+
+      <div className="card">
+        <div style={{ fontFamily:"'Bebas Neue'", fontSize:20, letterSpacing:2, color:"var(--gold)", marginBottom:10 }}>🔐 Inloggen</div>
+        <p style={{ fontSize:14, color:"var(--gray-l)", lineHeight:1.5 }}>
+          Je logt in via een <strong>magische link</strong> per e-mail. Geen wachtwoord nodig — gewoon je e-mailadres invullen en op de link klikken. De sessie blijft actief op je telefoon.
+        </p>
+      </div>
+
+      <div className="card mb-0">
+        <div style={{ fontFamily:"'Bebas Neue'", fontSize:20, letterSpacing:2, color:"var(--gold)", marginBottom:10 }}>🎯 Strategie</div>
+        <p style={{ fontSize:14, color:"var(--gray-l)", lineHeight:1.5, marginBottom:8 }}>
+          Met het progressieve systeem blijft het <strong>lang spannend</strong>. De finale alleen al levert 100pt op — dat zijn 10 groepswedstrijden!
+        </p>
+        <p style={{ fontSize:14, color:"var(--gold)", fontWeight:700 }}>Veel succes! ⚽🏆</p>
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// ADMIN VIEW
+// ════════════════════════════════════════════════════════════════════════════
+function AdminView({ matches, participants, allPreds, bonuses, settings, dbSet, dbPush, dbRemove, dbUpdate, showToast, adminTab, setAdminTab, auth }) {
+
+  const tabs = [
+    ["wedstrijden", "⚽"],
+    ["uitslagen",   "📋"],
+    ["deelnemers",  "👥"],
+    ["bonusvragen", "🏆"],
+    ["instellingen","⚙️"],
+  ];
+
+  return (
+    <div>
+      <div className="tab-bar">
+        {tabs.map(([key, icon]) => (
+          <button key={key} className={`tab${adminTab === key ? " active" : ""}`} onClick={() => setAdminTab(key)}>
+            {icon} {key.charAt(0).toUpperCase() + key.slice(1,4)}
+          </button>
+        ))}
+      </div>
+
+      {adminTab === "wedstrijden"  && <AdminMatches  matches={matches} dbPush={dbPush} dbRemove={dbRemove} showToast={showToast} />}
+      {adminTab === "uitslagen"    && <AdminResults  matches={matches} dbSet={dbSet} showToast={showToast} />}
+      {adminTab === "deelnemers"   && <AdminParticipants participants={participants} allPreds={allPreds} bonuses={bonuses} matches={matches} settings={settings} dbSet={dbSet} dbRemove={dbRemove} showToast={showToast} auth={auth} />}
+      {adminTab === "bonusvragen"  && <AdminBonuses  bonuses={bonuses} dbSet={dbSet} showToast={showToast} settings={settings} />}
+      {adminTab === "instellingen" && <AdminSettings settings={settings} dbSet={dbSet} showToast={showToast} matches={matches} participants={participants} allPreds={allPreds} bonuses={bonuses} />}
+    </div>
+  );
+}
+
+// ── ADMIN: MATCHES ───────────────────────────────────────────────────────────
+function AdminMatches({ matches, dbPush, dbRemove, showToast }) {
+  const blank = { home:"", away:"", date:"", group:"", phase:"group" };
+  const [form, setForm] = useState(blank);
+
+  const add = async () => {
+    if (!form.home.trim() || !form.away.trim()) { showToast("Vul beide ploegen in", "error"); return; }
+    const id = Date.now().toString();
+    await dbPush("matches", { ...form, id, result: null });
+    // Firebase push gives random key, but we embed id in value too
+    setForm(blank);
+    showToast("Wedstrijd toegevoegd ✓");
+  };
+
+  const remove = async (id) => {
+    // Find firebase key
+    const ref = firebase.database().ref("matches");
+    const snap = await ref.once("value");
+    snap.forEach(child => {
+      if (child.val().id === id) ref.child(child.key).remove();
+    });
+    showToast("Wedstrijd verwijderd", "error");
+  };
+
+  return (
+    <div>
+      <div className="section-title">Wedstrijd toevoegen</div>
+      <div className="card">
+        <div className="grid-2" style={{ marginBottom:10 }}>
+          {[["home","Thuisploeg","bijv. België"],["away","Uitploeg","bijv. Nederland"]].map(([f,l,p]) => (
+            <div key={f} className="form-group mb-0">
+              <label className="form-label">{l}</label>
+              <input className="form-input" placeholder={p} value={form[f]} onChange={e => setForm({...form,[f]:e.target.value})} />
+            </div>
+          ))}
+          <div className="form-group mb-0">
+            <label className="form-label">Datum & tijd</label>
+            <input className="form-input" type="datetime-local" value={form.date} onChange={e => setForm({...form,date:e.target.value})} />
+          </div>
+          <div className="form-group mb-0">
+            <label className="form-label">Groep</label>
+            <input className="form-input" placeholder="bijv. Groep A" value={form.group} onChange={e => setForm({...form,group:e.target.value})} />
+          </div>
+        </div>
+        <div className="form-group mb-0">
+          <label className="form-label">Fase (bepaalt punten)</label>
+          <select className="form-input" value={form.phase} onChange={e => setForm({...form,phase:e.target.value})}>
+            {Object.entries(PHASES).map(([k,v]) => <option key={k} value={k}>{v.name} — exact {v.exact}pt</option>)}
+          </select>
+        </div>
+        <button className="btn btn-gold mt-12" onClick={add}>+ Toevoegen</button>
+      </div>
+
+      <div className="section-title">Wedstrijden ({matches.length})</div>
+      {matches.length === 0 && <div className="empty"><div className="empty-icon">📭</div><div className="empty-text">Geen wedstrijden</div></div>}
+      {matches.map(m => (
+        <div key={m.id} className="match-card">
+          <div className="flex justify-between items-center">
+            <div>
+              <div className="flex items-center gap-8">
+                <span style={{ fontWeight:700, fontSize:15 }}>{m.home} — {m.away}</span>
+                <span className="phase-pill">{PHASES[m.phase]?.name}</span>
+              </div>
+              <div className="text-xs text-gray mt-8">{m.group && `${m.group} · `}{fmtDate(m.date)}</div>
+            </div>
+            <button className="btn btn-danger btn-sm" onClick={() => remove(m.id)}>✕</button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── ADMIN: RESULTS ───────────────────────────────────────────────────────────
+function AdminResults({ matches, dbSet, showToast }) {
+  const [editResults, setEditResults] = useState({});
+
+  const save = async (m) => {
+    const r = editResults[m.id];
+    if (!r || r.home === "" || r.away === "") { showToast("Vul beide scores in", "error"); return; }
+    // Find the firebase key for this match
+    const ref = firebase.database().ref("matches");
+    const snap = await ref.once("value");
+    snap.forEach(child => {
+      if (child.val().id === m.id) ref.child(child.key).update({ result: { home: r.home, away: r.away } });
+    });
+    showToast("Uitslag opgeslagen ✓");
+  };
+
+  const clear = async (m) => {
+    const ref = firebase.database().ref("matches");
+    const snap = await ref.once("value");
+    snap.forEach(child => {
+      if (child.val().id === m.id) ref.child(child.key).update({ result: null });
+    });
+    showToast("Uitslag gewist", "error");
+  };
+
+  return (
+    <div>
+      <div className="section-title">Uitslagen invoeren</div>
+      {matches.length === 0 && <div className="empty"><div className="empty-icon">⚽</div><div className="empty-text">Voeg eerst wedstrijden toe</div></div>}
+      {matches.map(m => (
+        <div key={m.id} className="match-card">
+          <div className="flex justify-between items-center" style={{ marginBottom:10 }}>
+            <div>
+              <div style={{ fontWeight:700, fontSize:14 }}>{m.home} — {m.away}</div>
+              <div className="text-xs text-gray">{m.group} · {PHASES[m.phase]?.name}</div>
+            </div>
+            <span className={`badge ${m.result ? "badge-result" : "badge-open"}`}>
+              {m.result ? `${m.result.home}–${m.result.away}` : "Open"}
+            </span>
+          </div>
+          <div className="flex items-center gap-8">
+            <input className="form-input score-input" type="number" min="0" max="99" inputMode="numeric"
+              value={editResults[m.id]?.home ?? m.result?.home ?? ""}
+              onChange={e => setEditResults({...editResults,[m.id]:{...editResults[m.id],home:e.target.value}})} />
+            <span style={{ color:"var(--gray)", fontFamily:"'Bebas Neue'", fontSize:20 }}>–</span>
+            <input className="form-input score-input" type="number" min="0" max="99" inputMode="numeric"
+              value={editResults[m.id]?.away ?? m.result?.away ?? ""}
+              onChange={e => setEditResults({...editResults,[m.id]:{...editResults[m.id],away:e.target.value}})} />
+            <button className="btn btn-gold btn-sm" onClick={() => save(m)}>✓ OK</button>
+            {m.result && <button className="btn btn-danger btn-sm" onClick={() => clear(m)}>✕</button>}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── ADMIN: PARTICIPANTS ──────────────────────────────────────────────────────
+function AdminParticipants({ participants, allPreds, bonuses, matches, settings, dbSet, dbRemove, showToast, auth }) {
+  const [form, setForm] = useState({ name:"", email:"" });
+  const [sending, setSending] = useState(false);
+
+  const invite = async () => {
+    if (!form.name.trim() || !form.email.trim()) { showToast("Naam en e-mail vereist", "error"); return; }
+    setSending(true);
+    try {
+      // Send magic link invite
+      await auth.sendSignInLinkToEmail(form.email.trim(), {
+        url: window.location.href,
+        handleCodeInApp: true,
+      });
+      // Pre-register participant (will be linked when they sign in)
+      // Store with email as temp key until real uid is known
+      await dbSet(`invites/${form.email.replace(/\./g,"_").replace(/@/g,"__at__")}`, {
+        name: form.name.trim(),
+        email: form.email.trim(),
+        invitedAt: new Date().toISOString(),
+      });
+      showToast(`Uitnodiging verstuurd naar ${form.email} ✓`);
+      setForm({ name:"", email:"" });
+    } catch(e) { showToast("Fout: " + e.message, "error"); }
+    setSending(false);
+  };
+
+  const remove = async (uid) => {
+    if (!window.confirm("Deelnemer verwijderen?")) return;
+    await dbRemove(`participants/${uid}`);
+    await dbRemove(`predictions/${uid}`);
+    await dbRemove(`bonuses/${uid}`);
+    showToast("Deelnemer verwijderd", "error");
+  };
+
+  return (
+    <div>
+      <div className="section-title">Deelnemer uitnodigen</div>
+      <div className="card">
+        <div className="alert alert-info" style={{ marginBottom:12 }}>
+          📧 Deelnemers ontvangen een magische inloglink. Ze registreren automatisch bij eerste login.
+        </div>
+        <div className="form-group">
+          <label className="form-label">Naam</label>
+          <input className="form-input" placeholder="Voornaam of bijnaam" value={form.name}
+            onChange={e => setForm({...form,name:e.target.value})} />
+        </div>
+        <div className="form-group mb-0">
+          <label className="form-label">E-mailadres</label>
+          <input className="form-input" type="email" inputMode="email" placeholder="naam@voorbeeld.be" value={form.email}
+            onChange={e => setForm({...form,email:e.target.value})}
+            onKeyDown={e => e.key === "Enter" && invite()} />
+        </div>
+        <button className="btn btn-gold mt-12" onClick={invite} disabled={sending || !form.name.trim() || !form.email.trim()}>
+          {sending ? "⏳ Versturen…" : "📧 Uitnodiging sturen"}
+        </button>
+      </div>
+
+      <div className="section-title">Deelnemers ({participants.length})</div>
+      {participants.length === 0 && <div className="empty"><div className="empty-icon">👥</div><div className="empty-text">Nog geen deelnemers ingelogd</div></div>}
+      {participants.map(p => {
+        const pts   = totalPoints(p.uid, allPreds, bonuses, matches, settings);
+        const count = Object.keys(allPreds?.[p.uid] || {}).length;
+        return (
+          <div key={p.uid} className="rank-row">
+            <span style={{ fontSize:20 }}>👤</span>
+            <div style={{ flex:1 }}>
+              <div style={{ fontWeight:600 }}>{p.name || p.email?.split("@")[0]}</div>
+              <div className="text-xs text-gray">{p.email} · {count} prono's</div>
+            </div>
+            <span style={{ fontFamily:"'Bebas Neue'", fontSize:22, color:"var(--gold-l)" }}>{pts}</span>
+            <button className="btn btn-danger btn-sm" onClick={() => remove(p.uid)}>✕</button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── ADMIN: BONUSES ───────────────────────────────────────────────────────────
+function AdminBonuses({ bonuses, dbSet, showToast, settings }) {
+  const cfg = { ...DEFAULT_SETTINGS, ...settings };
+  const [form, setForm] = useState(bonuses?.results || { topScorer:"", topScorerTop3:[], winner:"", runnerUp:"", third:"" });
+
+  const save = async () => {
+    await dbSet("bonuses/results", form);
+    showToast("Bonusuitslagen opgeslagen ✓");
+  };
+
+  return (
+    <div>
+      <div className="section-title">Bonusvragen uitslagen</div>
+      <div className="card">
+        {[
+          ["topScorer",  `Topscorer (${cfg.topScorerExact}pt exact)`, "bijv. Mbappé"],
+          ["winner",     `Winnaar WK (${cfg.winnerPoints}pt)`, "bijv. Brazilië"],
+          ["runnerUp",   `Runner-up (${cfg.runnerUpPoints}pt)`, "bijv. Spanje"],
+          ["third",      `3e plaats (${cfg.thirdPlacePoints}pt)`, "bijv. Engeland"],
+        ].map(([f,l,p]) => (
+          <div key={f} className="form-group">
+            <label className="form-label">{l}</label>
+            <input className="form-input" placeholder={p} value={form[f] || ""}
+              onChange={e => setForm({...form,[f]:e.target.value})} />
+          </div>
+        ))}
+        <div className="form-group">
+          <label className="form-label">Top-3 topscorers (komma-gescheiden · {cfg.topScorerInTop3}pt)</label>
+          <input className="form-input" placeholder="bijv. Mbappé, Kane, Messi"
+            value={form.topScorerTop3?.join(", ") || ""}
+            onChange={e => setForm({...form, topScorerTop3: e.target.value.split(",").map(s=>s.trim()).filter(Boolean)})} />
+        </div>
+        <button className="btn btn-gold btn-full" onClick={save}>💾 Opslaan</button>
+      </div>
+    </div>
+  );
+}
+
+// ── ADMIN: SETTINGS ──────────────────────────────────────────────────────────
+function AdminSettings({ settings, dbSet, showToast, matches, participants, allPreds, bonuses }) {
+  const [form, setForm] = useState({ ...DEFAULT_SETTINGS, ...settings });
+
+  const save = async () => {
+    await dbSet("settings", form);
+    showToast("Instellingen opgeslagen ✓");
+  };
+
+  const resetAll = async () => {
+    if (!window.confirm("⚠️ ALLE data verwijderen (wedstrijden, prono's, deelnemers)?\n\nInstellingen blijven behouden.")) return;
+    if (!window.confirm("‼️ Laatste kans — niet ongedaan te maken!")) return;
+    await Promise.all([
+      dbSet("matches", null),
+      dbSet("participants", null),
+      dbSet("predictions", null),
+      dbSet("bonuses", null),
+    ]);
+    showToast("Alle data gereset", "error");
+  };
+
+  return (
+    <div>
+      <div className="section-title">Instellingen</div>
+      <div className="card">
+        <div className="form-group">
+          <label className="form-label">Toernooi naam</label>
+          <input className="form-input" value={form.tournamentName}
+            onChange={e => setForm({...form,tournamentName:e.target.value})} />
+        </div>
+        <div className="form-group mb-0">
+          <label className="form-label">Bonusvragen deadline</label>
+          <input className="form-input" type="datetime-local" value={form.bonusDeadline}
+            onChange={e => setForm({...form,bonusDeadline:e.target.value})} />
+        </div>
+        <button className="btn btn-gold mt-12" onClick={save}>💾 Opslaan</button>
+      </div>
+
+      <div className="section-title">Puntenwaardes bonus</div>
+      <div className="card">
+        <div className="grid-2">
+          {[
+            ["topScorerExact","Topscorer exact"],
+            ["topScorerInTop3","Topscorer top-3"],
+            ["winnerPoints","Winnaar"],
+            ["runnerUpPoints","Runner-up"],
+            ["thirdPlacePoints","3e plaats"],
+          ].map(([f,l]) => (
+            <div key={f} className="form-group mb-0">
+              <label className="form-label">{l}</label>
+              <input className="form-input" type="number" min="0" value={form[f]}
+                onChange={e => setForm({...form,[f]:Number(e.target.value)})} />
+            </div>
+          ))}
+        </div>
+        <button className="btn btn-gold mt-12" onClick={save}>💾 Opslaan</button>
+      </div>
+
+      <div className="section-title">⚠️ Danger Zone</div>
+      <div className="card">
+        <div className="alert alert-error" style={{ marginBottom:12 }}>
+          Verwijdert alle wedstrijden, deelnemers en prono's. Instellingen blijven.
+        </div>
+        <button className="btn btn-danger btn-full" onClick={resetAll}>🗑️ Reset alle data</button>
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// BOOTSTRAP
+// ════════════════════════════════════════════════════════════════════════════
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<App />);
+</script>
+</body>
+</html>
