@@ -1,0 +1,45 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+
+    "participants": {
+      ".read": "auth != null",
+      "$uid": {
+        ".write": "$uid === auth.uid || auth.token.email === 'deboeckt@gmail.com'"
+      }
+    },
+
+    "predictions": {
+      ".read": "auth != null",
+      "$uid": {
+        ".write": "$uid === auth.uid"
+      }
+    },
+
+    "bonuses": {
+      ".read": "auth != null",
+      "results": {
+        ".write": "auth.token.email === 'deboeckt@gmail.com'"
+      },
+      "$uid": {
+        ".write": "$uid === auth.uid"
+      }
+    },
+
+    "matches": {
+      ".read": "auth != null",
+      ".write": "auth.token.email === 'deboeckt@gmail.com'"
+    },
+
+    "settings": {
+      ".read": "auth != null",
+      ".write": "auth.token.email === 'deboeckt@gmail.com'"
+    },
+
+    "invites": {
+      ".read": "auth.token.email === 'deboeckt@gmail.com'",
+      ".write": "auth.token.email === 'deboeckt@gmail.com'"
+    }
+  }
+}
