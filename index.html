@@ -874,6 +874,9 @@ function App() {
       setUser(u);
       if (u) {
         setIsAdmin(u.email === ADMIN_EMAIL);
+        // Email/password accounts must be verified before entering the app
+        const isEmailProvider = u.providerData[0]?.providerId === "password";
+        if (isEmailProvider && !u.emailVerified) { setAuthLoading(false); return; }
         // Load participant record
         try {
           const snap = await db.ref(`participants/${u.uid}`).get();
@@ -882,7 +885,7 @@ if (snap.exists()) {
 } else {
   const newParticipant = {
     uid: u.uid,
-    name: u.email?.split("@")[0] || "Deelnemer",
+    name: u.displayName || u.email?.split("@")[0] || "Deelnemer",
     email: u.email,
     joinedAt: new Date().toISOString()
   };
@@ -978,6 +981,9 @@ if (snap.exists()) {
   // LOGIN SCREEN (niet ingelogd)
   // ════════════════════════════════════════════════════════════════════════
   if (!user) return <LoginScreen showToast={showToast} settings={settings} />;
+
+  if (user.providerData[0]?.providerId === "password" && !user.emailVerified)
+    return <VerifyEmailScreen user={user} showToast={showToast} />;
 
   if (needsName) return <ChooseNameScreen updateName={updateName} defaultName={participant?.name || ""} />;
 
@@ -1085,8 +1091,11 @@ function LoginScreen({ showToast, settings }) {
     if (!email.trim() || !password) return;
     if (password.length < 6) { showToast("Wachtwoord moet minstens 6 tekens zijn", "error"); return; }
     setLoading(true);
-    try { await auth.createUserWithEmailAndPassword(email.trim(), password); }
-    catch(e) { showToast("Registratie mislukt: " + e.message, "error"); }
+    try {
+      const cred = await auth.createUserWithEmailAndPassword(email.trim(), password);
+      await cred.user.sendEmailVerification();
+      showToast("Account aangemaakt! Verifieer je e-mail.", "success");
+    } catch(e) { showToast("Registratie mislukt: " + e.message, "error"); }
     setLoading(false);
   };
 
@@ -1192,6 +1201,56 @@ function LoginScreen({ showToast, settings }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
+// VERIFY EMAIL SCREEN
+// ════════════════════════════════════════════════════════════════════════════
+function VerifyEmailScreen({ user, showToast }) {
+  const [sending,  setSending]  = useState(false);
+  const [checking, setChecking] = useState(false);
+
+  const resend = async () => {
+    setSending(true);
+    try { await user.sendEmailVerification(); showToast("Verificatiemail opnieuw verstuurd!", "success"); }
+    catch(e) { showToast("Fout: " + e.message, "error"); }
+    setSending(false);
+  };
+
+  const checkVerified = async () => {
+    setChecking(true);
+    await auth.currentUser.reload();
+    if (!auth.currentUser.emailVerified) showToast("E-mail nog niet geverifieerd", "error");
+    setChecking(false);
+  };
+
+  return (
+    <div className="login-screen">
+      <div className="login-box">
+        <span className="login-trophy">📬</span>
+        <div className="login-title">Verifieer je e-mail</div>
+        <div className="login-sub">Bijna klaar</div>
+        <div className="card" style={{ textAlign:"center" }}>
+          <p style={{ fontSize:14, color:"var(--gray-l)", lineHeight:1.6, marginBottom:16 }}>
+            We stuurden een verificatiemail naar<br/>
+            <strong style={{ color:"var(--white)" }}>{user.email}</strong>
+          </p>
+          <p style={{ fontSize:13, color:"var(--gray)", marginBottom:20 }}>
+            Klik op de link in de mail en kom dan terug naar de app.
+          </p>
+          <button className="btn btn-gold btn-full btn-lg" onClick={checkVerified} disabled={checking}>
+            {checking ? "⏳ Controleren…" : "✓ Ik heb geverifieerd"}
+          </button>
+          <button className="btn btn-ghost btn-full mt-8" onClick={resend} disabled={sending}>
+            {sending ? "⏳ Versturen…" : "📧 Mail opnieuw sturen"}
+          </button>
+          <button className="btn-text-link" style={{ marginTop:14, display:"block", margin:"14px auto 0" }}
+            onClick={() => auth.signOut()}>
+            Uitloggen
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // CHOOSE NAME SCREEN
 // ════════════════════════════════════════════════════════════════════════════
 function ChooseNameScreen({ updateName, defaultName }) {
