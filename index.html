@@ -844,8 +844,9 @@ function App() {
 
     // Handle magic link redirect
     if (auth.isSignInWithEmailLink(window.location.href)) {
-      let email = window.localStorage.getItem("wk_email_for_signin");
-      if (!email) email = window.prompt("Bevestig je e-mailadres:");
+      let email = new URLSearchParams(window.location.search).get("email")
+                  || window.localStorage.getItem("wk_email_for_signin")
+                  || window.prompt("Bevestig je e-mailadres:");
       if (email) {
         auth.signInWithEmailLink(email, window.location.href)
           .then(() => { window.localStorage.removeItem("wk_email_for_signin"); window.history.replaceState({}, document.title, "/"); })
@@ -1039,8 +1040,10 @@ function LoginScreen({ showToast, settings }) {
     if (!email.trim() || !email.includes("@")) { showToast("Voer een geldig e-mailadres in", "error"); return; }
     setLoading(true);
     try {
+      const redirectUrl = new URL(window.location.origin);
+      redirectUrl.searchParams.set("email", email.trim());
       const actionCodeSettings = {
-        url: window.location.href,
+        url: redirectUrl.toString(),
         handleCodeInApp: true,
       };
       await auth.sendSignInLinkToEmail(email.trim(), actionCodeSettings);
@@ -1941,8 +1944,10 @@ function AdminParticipants({ participants, allPreds, bonuses, matches, settings,
     setSending(true);
     try {
       // Send magic link invite
+      const inviteUrl = new URL(window.location.origin);
+      inviteUrl.searchParams.set("email", form.email.trim());
       await auth.sendSignInLinkToEmail(form.email.trim(), {
-        url: window.location.href,
+        url: inviteUrl.toString(),
         handleCodeInApp: true,
       });
       // Pre-register participant (will be linked when they sign in)
