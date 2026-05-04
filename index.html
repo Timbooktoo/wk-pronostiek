@@ -6,6 +6,9 @@
   <meta name="theme-color" content="#0a2e1a">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="WK Prono">
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icon.svg">
   <title>WK Pronostiek 2026</title>
 
   <!-- Fonts -->
@@ -2127,6 +2130,11 @@ function AdminSettings({ settings, dbSet, showToast, matches, participants, allP
 // ════════════════════════════════════════════════════════════════════════════
 const root = ReactDOM.createRoot(document.getElementById("root"));
 root.render(<App />);
+</script>
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
+  }
 </script>
 </body>
 </html>
