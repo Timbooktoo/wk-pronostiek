@@ -1990,7 +1990,8 @@ function AdminParticipants({ participants, allPreds, bonuses, matches, settings,
       {participants.length === 0 && <div className="empty"><div className="empty-icon">👥</div><div className="empty-text">Nog geen deelnemers ingelogd</div></div>}
       {participants.map(p => {
         const pts   = totalPoints(p.uid, allPreds, bonuses, matches, settings);
-        const count = Object.keys(allPreds?.[p.uid] || {}).length;
+        const matchIds = new Set(matches.map(m => m.id));
+        const count = Object.keys(allPreds?.[p.uid] || {}).filter(id => matchIds.has(id)).length;
         return (
           <div key={p.uid} className="rank-row">
             <span style={{ fontSize:20 }}>👤</span>
