@@ -849,8 +849,9 @@ function App() {
   const [settings,     setSettings]     = useState(DEFAULT_SETTINGS);
 
   // ── UI ──
-  const [view,      setView]     = useState("home");
-  const [adminTab,  setAdminTab] = useState("wedstrijden");
+  const [view,          setView]         = useState("home");
+  const [pronosInitTab, setPronosInitTab] = useState("open");
+  const [adminTab,      setAdminTab]      = useState("wedstrijden");
   const [toast,     setToast]    = useState(null);
   const [needsName, setNeedsName] = useState(false);
   const toastTimer = useRef(null);
@@ -1028,8 +1029,8 @@ if (snap.exists()) {
 
         {/* Content */}
         <div className="content">
-          {view === "home"    && <HomeView myPoints={myPoints} matches={matches} participants={participants} allPreds={allPreds} bonuses={bonuses} settings={settings} myUid={myUid} setView={setView} participant={participant} user={user} updateName={updateName} />}
-          {view === "pronos"  && <PronosView openMatches={openMatches} closedMatches={closedMatches} myPreds={myPreds} allPreds={allPreds} myUid={myUid} dbSet={dbSet} showToast={showToast} bonuses={bonuses} myBonus={myBonus} settings={settings} matches={matches} participants={participants} />}
+          {view === "home"    && <HomeView myPoints={myPoints} matches={matches} participants={participants} allPreds={allPreds} bonuses={bonuses} settings={settings} myUid={myUid} setView={setView} setPronosInitTab={setPronosInitTab} participant={participant} user={user} updateName={updateName} />}
+          {view === "pronos"  && <PronosView openMatches={openMatches} closedMatches={closedMatches} myPreds={myPreds} allPreds={allPreds} myUid={myUid} dbSet={dbSet} showToast={showToast} bonuses={bonuses} myBonus={myBonus} settings={settings} matches={matches} participants={participants} initialTab={pronosInitTab} />}
           {view === "ranking" && <RankingView participants={participants} allPreds={allPreds} bonuses={bonuses} matches={matches} settings={settings} myUid={myUid} />}
           {view === "hof"     && <HallOfFameView />}
           {view === "rules"   && <RulesView settings={settings} />}
@@ -1291,7 +1292,7 @@ function ChooseNameScreen({ updateName, defaultName }) {
 // ════════════════════════════════════════════════════════════════════════════
 // HOME VIEW
 // ════════════════════════════════════════════════════════════════════════════
-function HomeView({ myPoints, matches, participants, allPreds, bonuses, settings, myUid, setView, participant, user, updateName }) {
+function HomeView({ myPoints, matches, participants, allPreds, bonuses, settings, myUid, setView, setPronosInitTab, participant, user, updateName }) {
   const [editingName, setEditingName] = useState(false);
   const [nameInput,   setNameInput]   = useState(participant?.name || "");
   const ranked = useMemo(() =>
@@ -1340,11 +1341,11 @@ function HomeView({ myPoints, matches, participants, allPreds, bonuses, settings
 
       {/* Quick actions */}
       <div className="section-title">Snelle acties</div>
-      <button className="btn btn-gold btn-full mb-0" style={{ marginBottom:8 }} onClick={() => setView("pronos")}>
+      <button className="btn btn-gold btn-full mb-0" style={{ marginBottom:8 }} onClick={() => { setPronosInitTab("open"); setView("pronos"); }}>
         ⚽ Prono's invullen
       </button>
       {bonusOpen && (
-        <button className="btn btn-outline btn-full" style={{ marginBottom:8 }} onClick={() => setView("pronos")}>
+        <button className="btn btn-outline btn-full" style={{ marginBottom:8 }} onClick={() => { setPronosInitTab("bonus"); setView("pronos"); }}>
           🏆 Bonusvragen invullen
         </button>
       )}
@@ -1405,8 +1406,8 @@ function HomeView({ myPoints, matches, participants, allPreds, bonuses, settings
 // ════════════════════════════════════════════════════════════════════════════
 // PRONOS VIEW
 // ════════════════════════════════════════════════════════════════════════════
-function PronosView({ openMatches, closedMatches, myPreds, allPreds, myUid, dbSet, showToast, bonuses, myBonus, settings, matches, participants }) {
-  const [tab,        setTab]        = useState("open");
+function PronosView({ openMatches, closedMatches, myPreds, allPreds, myUid, dbSet, showToast, bonuses, myBonus, settings, matches, participants, initialTab }) {
+  const [tab,        setTab]        = useState(initialTab || "open");
   const [localPreds, setLocalPreds] = useState(myPreds || {});
   const [localBonus, setLocalBonus] = useState(myBonus || { topScorer:"", winner:"", runnerUp:"", third:"" });
   const [saving,     setSaving]     = useState(false);
