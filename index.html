@@ -870,7 +870,10 @@ if (snap.exists()) {
   setParticipant(newParticipant);
   setNeedsName(true);
 }
-        } catch {}
+        } catch(e) {
+          console.error("Auth error:", e);
+          showToast("Aanmelding mislukt", "error");
+        }
       } else {
         setIsAdmin(false);
         setParticipant(null);
@@ -889,7 +892,7 @@ if (snap.exists()) {
       refs.push(r);
       r.on("value", snap => setter(transform ? transform(snap.val()) : (snap.val() || {})));
     };
-    on("matches",      setMatches,      v => v ? Object.values(v) : []);
+    on("matches",      setMatches,      v => v ? Object.entries(v).map(([k, val]) => ({ ...val, _fbKey: k })) : []);
     on("participants", setParticipants, v => v ? Object.values(v) : []);
     on("predictions",  setAllPreds,     null);
     on("bonuses",      setBonuses,      null);
@@ -1142,9 +1145,12 @@ function ChooseNameScreen({ updateName, defaultName }) {
 function HomeView({ myPoints, matches, participants, allPreds, bonuses, settings, myUid, setView, participant, user, updateName }) {
   const [editingName, setEditingName] = useState(false);
   const [nameInput,   setNameInput]   = useState(participant?.name || "");
-  const ranked = [...participants]
-    .map(p => ({ ...p, pts: totalPoints(p.uid, allPreds, bonuses, matches, settings) }))
-    .sort((a,b) => b.pts - a.pts);
+  const ranked = useMemo(() =>
+    [...participants]
+      .map(p => ({ ...p, pts: totalPoints(p.uid, allPreds, bonuses, matches, settings) }))
+      .sort((a,b) => b.pts - a.pts),
+    [participants, allPreds, bonuses, matches, settings]
+  );
 
   const myRank      = ranked.findIndex(p => p.uid === myUid) + 1;
   const completedM  = matches.filter(m => m.result).length;
@@ -1225,11 +1231,11 @@ function HomeView({ myPoints, matches, participants, allPreds, bonuses, settings
             <label className="form-label">Jouw naam</label>
             <input className="form-input" value={nameInput} maxLength={30}
               onChange={e => setNameInput(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && updateName(nameInput).then(() => setEditingName(false))}
+              onKeyDown={e => e.key === "Enter" && updateName(nameInput).then(() => setEditingName(false)).catch(() => {})}
               autoFocus />
           </div>
           <div className="flex gap-8 mt-12">
-            <button className="btn btn-gold" onClick={() => updateName(nameInput).then(() => setEditingName(false))} disabled={!nameInput.trim()}>Opslaan</button>
+            <button className="btn btn-gold" onClick={() => updateName(nameInput).then(() => setEditingName(false)).catch(() => {})} disabled={!nameInput.trim()}>Opslaan</button>
             <button className="btn btn-ghost" onClick={() => setEditingName(false)}>Annuleer</button>
           </div>
         </div>
@@ -1688,12 +1694,15 @@ function AdminMatches({ matches, dbPush, dbRemove, dbUpdate, showToast }) {
   };
 
   const remove = async (id) => {
-    const ref = firebase.database().ref("matches");
-    const snap = await ref.once("value");
-    snap.forEach(child => {
-      if (child.val().id === id) ref.child(child.key).remove();
-    });
-    showToast("Wedstrijd verwijderd ✓");
+    if (!window.confirm("Wedstrijd verwijderen?")) return;
+    const m = matches.find(m => m.id === id);
+    if (!m?._fbKey) { showToast("Wedstrijd niet gevonden", "error"); return; }
+    try {
+      await firebase.database().ref(`matches/${m._fbKey}`).remove();
+      showToast("Wedstrijd verwijderd ✓");
+    } catch(e) {
+      showToast("Verwijderen mislukt: " + e.message, "error");
+    }
   };
 
   const startEdit = (m) => {
@@ -1703,12 +1712,10 @@ function AdminMatches({ matches, dbPush, dbRemove, dbUpdate, showToast }) {
 
   const saveEdit = async () => {
     if (!editForm.home.trim() || !editForm.away.trim()) { showToast("Vul beide ploegen in", "error"); return; }
+    const m = matches.find(m => m.id === editId);
+    if (!m?._fbKey) { showToast("Wedstrijd niet gevonden", "error"); return; }
     try {
-      const ref = firebase.database().ref("matches");
-      const snap = await ref.once("value");
-      snap.forEach(child => {
-        if (child.val().id === editId) ref.child(child.key).update(editForm);
-      });
+      await firebase.database().ref(`matches/${m._fbKey}`).update(editForm);
       setEditId(null);
       showToast("Wedstrijd opgeslagen ✓");
     } catch(e) {
@@ -1870,22 +1877,23 @@ function AdminResults({ matches, dbSet, showToast }) {
   const save = async (m) => {
     const r = editResults[m.id];
     if (!r || r.home === "" || r.away === "") { showToast("Vul beide scores in", "error"); return; }
-    // Find the firebase key for this match
-    const ref = firebase.database().ref("matches");
-    const snap = await ref.once("value");
-    snap.forEach(child => {
-      if (child.val().id === m.id) ref.child(child.key).update({ result: { home: r.home, away: r.away } });
-    });
-    showToast("Uitslag opgeslagen ✓");
+    if (!m._fbKey) { showToast("Wedstrijd niet gevonden", "error"); return; }
+    try {
+      await firebase.database().ref(`matches/${m._fbKey}`).update({ result: { home: r.home, away: r.away } });
+      showToast("Uitslag opgeslagen ✓");
+    } catch(e) {
+      showToast("Opslaan mislukt: " + e.message, "error");
+    }
   };
 
   const clear = async (m) => {
-    const ref = firebase.database().ref("matches");
-    const snap = await ref.once("value");
-    snap.forEach(child => {
-      if (child.val().id === m.id) ref.child(child.key).update({ result: null });
-    });
-    showToast("Uitslag gewist", "error");
+    if (!m._fbKey) { showToast("Wedstrijd niet gevonden", "error"); return; }
+    try {
+      await firebase.database().ref(`matches/${m._fbKey}`).update({ result: null });
+      showToast("Uitslag gewist");
+    } catch(e) {
+      showToast("Wissen mislukt: " + e.message, "error");
+    }
   };
 
   return (
