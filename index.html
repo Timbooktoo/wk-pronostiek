@@ -1060,15 +1060,12 @@ function LoginScreen({ showToast, settings }) {
   const [showPwd, setShowPwd] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  const isPWA = window.matchMedia("(display-mode: standalone)").matches ||
-                window.navigator.standalone === true;
-  const useRedirect = isPWA; // Only redirect in PWA; browser (incl. iOS Safari) handles popup fine
-
   const signInWithProvider = async (provider) => {
     setLoading(true);
     try {
-      if (useRedirect) { await auth.signInWithRedirect(provider); }
-      else             { await auth.signInWithPopup(provider); }
+      // Always use redirect: works in both browser and PWA WebView.
+      // Popup causes loops on iOS Safari; redirect stays within the same context.
+      await auth.signInWithRedirect(provider);
     } catch(e) {
       showToast("Login mislukt: " + e.message, "error");
       setLoading(false);
