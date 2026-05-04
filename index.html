@@ -1064,11 +1064,15 @@ function LoginScreen({ showToast, settings }) {
   const signInWithProvider = async (provider) => {
     setLoading(true);
     try {
-      // Always use redirect: works in both browser and PWA WebView.
-      // Popup causes loops on iOS Safari; redirect stays within the same context.
-      await auth.signInWithRedirect(provider);
+      // Use popup: redirect is broken on GitHub Pages because the cross-origin
+      // cookie handshake between firebaseapp.com and timbooktoo.github.io is
+      // blocked by all modern browsers (Safari ITP, Chrome, Firefox ETP).
+      // Popup uses window.postMessage instead of cookies, so it works everywhere.
+      await auth.signInWithPopup(provider);
     } catch(e) {
-      showToast("Login mislukt: " + e.message, "error");
+      if (e.code !== 'auth/popup-closed-by-user' && e.code !== 'auth/cancelled-popup-request') {
+        showToast("Login mislukt: " + e.message, "error");
+      }
       setLoading(false);
     }
   };
