@@ -1060,11 +1060,9 @@ function LoginScreen({ showToast, settings }) {
   const [showPwd, setShowPwd] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-                (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
   const isPWA = window.matchMedia("(display-mode: standalone)").matches ||
                 window.navigator.standalone === true;
-  const useRedirect = isIOS || isPWA;
+  const useRedirect = isPWA; // Only redirect in PWA; browser (incl. iOS Safari) handles popup fine
 
   const signInWithProvider = async (provider) => {
     setLoading(true);
@@ -1217,8 +1215,12 @@ function VerifyEmailScreen({ user, showToast }) {
   const checkVerified = async () => {
     setChecking(true);
     await auth.currentUser.reload();
-    if (!auth.currentUser.emailVerified) showToast("E-mail nog niet geverifieerd", "error");
-    setChecking(false);
+    if (auth.currentUser.emailVerified) {
+      window.location.reload();
+    } else {
+      showToast("E-mail nog niet geverifieerd", "error");
+      setChecking(false);
+    }
   };
 
   return (
