@@ -259,6 +259,29 @@
     .btn-lg { padding: 15px 24px; font-size: 16px; }
     .btn-full { width: 100%; }
     .btn:disabled { opacity: 0.35; cursor: not-allowed; }
+    .btn-social {
+      display: flex; align-items: center; justify-content: center;
+      gap: 10px; font-size: 14px; letter-spacing: 0.5px;
+      text-transform: none; font-weight: 600; padding: 13px 20px;
+    }
+    .btn-google { background: #fff; color: #3c4043; border: 1px solid #dadce0; }
+    .btn-google:hover:not(:disabled) { background: #f8f8f8; box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
+    .btn-apple { background: #000; color: #fff; border: 1px solid #333; }
+    .btn-apple:hover:not(:disabled) { background: #1a1a1a; }
+    .login-divider {
+      display: flex; align-items: center; gap: 12px;
+      margin: 4px 0 16px; color: var(--gray);
+      font-size: 11px; letter-spacing: 2px; text-transform: uppercase;
+    }
+    .login-divider::before, .login-divider::after {
+      content: ""; flex: 1; height: 1px; background: rgba(255,255,255,0.1);
+    }
+    .btn-text-link {
+      background: none; border: none; color: var(--gold);
+      font-family: 'Barlow', sans-serif; font-size: 13px;
+      cursor: pointer; padding: 0; opacity: 0.85;
+    }
+    .btn-text-link:hover { opacity: 1; text-decoration: underline; }
 
     /* ─── FORM ──────────────────────────────────────────────────────────────── */
     .form-group { margin-bottom: 14px; }
@@ -842,17 +865,10 @@ function App() {
   useEffect(() => {
     if (!auth) { setAuthLoading(false); return; }
 
-    // Handle magic link redirect
-    if (auth.isSignInWithEmailLink(window.location.href)) {
-      let email = new URLSearchParams(window.location.search).get("email")
-                  || window.localStorage.getItem("wk_email_for_signin")
-                  || window.prompt("Bevestig je e-mailadres:");
-      if (email) {
-        auth.signInWithEmailLink(email, window.location.href)
-          .then(() => { window.localStorage.removeItem("wk_email_for_signin"); window.history.replaceState({}, document.title, "/"); })
-          .catch(e => showToast("Login mislukt: " + e.message, "error"));
-      }
-    }
+    // Handle OAuth redirect result (used on iOS PWA instead of popup)
+    auth.getRedirectResult()
+      .then(result => { if (result?.user) window.history.replaceState({}, document.title, "/"); })
+      .catch(e => { if (e.code !== 'auth/null-user') showToast("Login mislukt: " + e.message, "error"); });
 
     const unsub = auth.onAuthStateChanged(async u => {
       setUser(u);
@@ -1032,27 +1048,56 @@ if (snap.exists()) {
 // LOGIN SCREEN
 // ════════════════════════════════════════════════════════════════════════════
 function LoginScreen({ showToast, settings }) {
+  const [mode,    setMode]    = useState("login"); // "login" | "register" | "forgot"
   const [email,   setEmail]   = useState("");
-  const [sent,    setSent]    = useState(false);
+  const [password,setPassword]= useState("");
+  const [showPwd, setShowPwd] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  const sendLink = async () => {
-    if (!email.trim() || !email.includes("@")) { showToast("Voer een geldig e-mailadres in", "error"); return; }
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+                (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const isPWA = window.matchMedia("(display-mode: standalone)").matches ||
+                window.navigator.standalone === true;
+  const useRedirect = isIOS || isPWA;
+
+  const signInWithProvider = async (provider) => {
     setLoading(true);
     try {
-      const redirectUrl = new URL(window.location.origin);
-      redirectUrl.searchParams.set("email", email.trim());
-      const actionCodeSettings = {
-        url: redirectUrl.toString(),
-        handleCodeInApp: true,
-      };
-      await auth.sendSignInLinkToEmail(email.trim(), actionCodeSettings);
-      window.localStorage.setItem("wk_email_for_signin", email.trim());
-      setSent(true);
-      showToast("Link verstuurd! Controleer je inbox", "success");
+      if (useRedirect) { await auth.signInWithRedirect(provider); }
+      else             { await auth.signInWithPopup(provider); }
     } catch(e) {
-      showToast("Fout: " + e.message, "error");
+      showToast("Login mislukt: " + e.message, "error");
+      setLoading(false);
     }
+  };
+
+  const handleGoogle = () => signInWithProvider(new firebase.auth.GoogleAuthProvider());
+
+  const handleLogin = async () => {
+    if (!email.trim() || !password) return;
+    setLoading(true);
+    try { await auth.signInWithEmailAndPassword(email.trim(), password); }
+    catch(e) { showToast("Login mislukt: " + e.message, "error"); }
+    setLoading(false);
+  };
+
+  const handleRegister = async () => {
+    if (!email.trim() || !password) return;
+    if (password.length < 6) { showToast("Wachtwoord moet minstens 6 tekens zijn", "error"); return; }
+    setLoading(true);
+    try { await auth.createUserWithEmailAndPassword(email.trim(), password); }
+    catch(e) { showToast("Registratie mislukt: " + e.message, "error"); }
+    setLoading(false);
+  };
+
+  const handleForgot = async () => {
+    if (!email.trim()) { showToast("Voer je e-mailadres in", "error"); return; }
+    setLoading(true);
+    try {
+      await auth.sendPasswordResetEmail(email.trim());
+      showToast("Reset-link verstuurd! Controleer je inbox", "success");
+      setMode("login");
+    } catch(e) { showToast("Fout: " + e.message, "error"); }
     setLoading(false);
   };
 
@@ -1063,42 +1108,82 @@ function LoginScreen({ showToast, settings }) {
         <div className="login-title">{settings?.tournamentName || "WK Pronostiek 2026"}</div>
         <div className="login-sub">Pronostiek · 2026</div>
 
-        {!sent ? (
+        {mode === "forgot" ? (
           <div className="card" style={{ textAlign:"left" }}>
-            <div className="alert alert-info" style={{ marginBottom:16 }}>
-              📧 Je ontvangt een <strong>inloglink</strong> per e-mail. Geen wachtwoord nodig!
-            </div>
-            <div className="form-group mb-0">
-              <label className="form-label">Jouw e-mailadres</label>
-              <input
-                className="form-input"
-                type="email"
-                inputMode="email"
-                autoComplete="email"
-                placeholder="naam@voorbeeld.be"
-                value={email}
+            <div className="section-title" style={{ marginBottom:16 }}>Wachtwoord vergeten</div>
+            <div className="form-group">
+              <label className="form-label">E-mailadres</label>
+              <input className="form-input" type="email" inputMode="email" autoComplete="email"
+                placeholder="naam@voorbeeld.be" value={email}
                 onChange={e => setEmail(e.target.value)}
-                onKeyDown={e => e.key === "Enter" && sendLink()}
-              />
+                onKeyDown={e => e.key === "Enter" && handleForgot()} />
             </div>
-            <button className="btn btn-gold btn-full btn-lg mt-12" onClick={sendLink} disabled={loading || !email.trim()}>
-              {loading ? "⏳ Versturen…" : "📧 Stuur inloglink"}
+            <button className="btn btn-gold btn-full btn-lg" onClick={handleForgot} disabled={loading || !email.trim()}>
+              {loading ? "⏳ Versturen…" : "📧 Stuur reset-link"}
             </button>
-            <div className="text-xs text-gray" style={{ marginTop:10, textAlign:"center" }}>
-              Eerste keer? Vraag de admin om je toe te voegen.
-            </div>
+            <button className="btn btn-ghost btn-full mt-8" onClick={() => setMode("login")}>↩ Terug</button>
           </div>
         ) : (
-          <div className="card card-gold" style={{ textAlign:"center" }}>
-            <div style={{ fontSize:48, marginBottom:12 }}>📬</div>
-            <div style={{ fontFamily:"'Bebas Neue'", fontSize:24, letterSpacing:2, color:"var(--gold)", marginBottom:8 }}>
-              Link Verstuurd!
+          <div className="card" style={{ textAlign:"left" }}>
+            <button className="btn btn-social btn-google btn-full" style={{ marginBottom:16 }} onClick={handleGoogle} disabled={loading}>
+              <svg width="18" height="18" viewBox="0 0 18 18" style={{ flexShrink:0 }}>
+                <path fill="#4285F4" d="M16.51 8H8.98v3h4.3c-.18 1-.74 1.48-1.6 2.04v2.01h2.6a7.8 7.8 0 002.38-5.88c0-.57-.05-.66-.15-1.18z"/>
+                <path fill="#34A853" d="M8.98 17c2.16 0 3.97-.72 5.3-1.94l-2.6-2.01a4.8 4.8 0 01-7.18-2.54H1.83v2.07A8 8 0 008.98 17z"/>
+                <path fill="#FBBC05" d="M4.5 10.52a4.8 4.8 0 010-3.04V5.41H1.83a8 8 0 000 7.18l2.67-2.07z"/>
+                <path fill="#EA4335" d="M8.98 4.18c1.17 0 2.23.4 3.06 1.2l2.3-2.3A8 8 0 001.83 5.4L4.5 7.49a4.77 4.77 0 014.48-3.31z"/>
+              </svg>
+              Inloggen met Google
+            </button>
+            <div className="login-divider"><span>of</span></div>
+
+            <div className="form-group">
+              <label className="form-label">E-mailadres</label>
+              <input className="form-input" type="email" inputMode="email"
+                autoComplete="email" placeholder="naam@voorbeeld.be"
+                value={email} onChange={e => setEmail(e.target.value)} />
             </div>
-            <p style={{ fontSize:14, color:"var(--gray-l)", lineHeight:1.5 }}>
-              Controleer je inbox op <strong style={{ color:"var(--white)" }}>{email}</strong> en klik op de inloglink.
-            </p>
-            <p className="text-xs text-gray mt-12">Geen mail ontvangen? Controleer je spam of probeer opnieuw.</p>
-            <button className="btn btn-ghost btn-full mt-12" onClick={() => setSent(false)}>↩ Probeer opnieuw</button>
+            <div className="form-group mb-0" style={{ position:"relative" }}>
+              <label className="form-label">Wachtwoord</label>
+              <input className="form-input"
+                type={showPwd ? "text" : "password"}
+                autoComplete={mode === "login" ? "current-password" : "new-password"}
+                placeholder={mode === "register" ? "Min. 6 tekens" : "••••••••"}
+                value={password} onChange={e => setPassword(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && (mode === "login" ? handleLogin() : handleRegister())}
+                style={{ paddingRight:44 }} />
+              <button type="button" onClick={() => setShowPwd(v => !v)}
+                style={{ position:"absolute", right:12, top:30, background:"none", border:"none",
+                         cursor:"pointer", color:"var(--gray-l)", fontSize:16, padding:4 }}>
+                {showPwd ? "🙈" : "👁"}
+              </button>
+            </div>
+
+            {mode === "login" ? (
+              <>
+                <button className="btn btn-gold btn-full btn-lg mt-12" onClick={handleLogin}
+                  disabled={loading || !email.trim() || !password}>
+                  {loading ? "⏳…" : "Inloggen"}
+                </button>
+                <div style={{ display:"flex", justifyContent:"space-between", marginTop:12 }}>
+                  <button className="btn-text-link" onClick={() => { setMode("register"); setPassword(""); }}>
+                    Account aanmaken
+                  </button>
+                  <button className="btn-text-link" onClick={() => setMode("forgot")}>
+                    Wachtwoord vergeten?
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <button className="btn btn-gold btn-full btn-lg mt-12" onClick={handleRegister}
+                  disabled={loading || !email.trim() || !password}>
+                  {loading ? "⏳…" : "Account aanmaken"}
+                </button>
+                <button className="btn btn-ghost btn-full mt-8" onClick={() => { setMode("login"); setPassword(""); }}>
+                  ↩ Al een account? Inloggen
+                </button>
+              </>
+            )}
           </div>
         )}
       </div>
@@ -1976,7 +2061,7 @@ function AdminParticipants({ participants, allPreds, bonuses, matches, settings,
       <div className="section-title">Deelnemer uitnodigen</div>
       <div className="card">
         <div className="alert alert-info" style={{ marginBottom:12 }}>
-          📧 Deelnemers ontvangen een magische inloglink. Ze registreren automatisch bij eerste login.
+          📧 Deelnemer ontvangt een uitnodigingsmail. Ze kunnen inloggen via e-mail/wachtwoord, Google of Apple.
         </div>
         <div className="form-group">
           <label className="form-label">Naam</label>
