@@ -765,6 +765,7 @@ const DEFAULT_SETTINGS = {
   runnerUpPoints:   50,
   thirdPlacePoints: 25,
   bonusDeadline:    "2026-06-11T21:00",
+  bonusDeadlineAt:  1781204400000,
 };
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -798,6 +799,31 @@ const calcPoints = (pred, result, phase) => {
 
 const norm = s => (s || "").trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
 const sc   = v => (v !== "" && v != null) ? v : "?"; // safe score display (0 = valid, "" = no prono)
+const toTimestamp = value => {
+  const time = Date.parse(value || "");
+  return Number.isFinite(time) ? time : null;
+};
+const withSettingsDeadline = settings => {
+  const merged = { ...DEFAULT_SETTINGS, ...(settings || {}) };
+  return {
+    ...merged,
+    bonusDeadlineAt: toTimestamp(merged.bonusDeadline) ?? DEFAULT_SETTINGS.bonusDeadlineAt,
+  };
+};
+const withMatchLock = match => ({
+  ...match,
+  lockAt: toTimestamp(match?.date),
+});
+const matchAccessRecord = match => ({
+  exists: true,
+  lockAt: toTimestamp(match?.date),
+  resultPublished: !!match?.result,
+});
+const canReadMatchPredictions = (match, now = Date.now()) =>
+  !!match?.result || (typeof match?.lockAt === "number" && match.lockAt <= now);
+const bonusDeadlineMs = settings =>
+  typeof settings?.bonusDeadlineAt === "number" ? settings.bonusDeadlineAt : DEFAULT_SETTINGS.bonusDeadlineAt;
+const bonusAnswersReadable = (settings, now = Date.now()) => bonusDeadlineMs(settings) <= now;
 
 const totalPoints = (uid, allPreds, bonuses, matches, settings) => {
   let total = 0;
@@ -847,7 +873,8 @@ function App() {
   const [participants, setParticipants] = useState([]);
   const [allPreds,     setAllPreds]     = useState({});
   const [bonuses,      setBonuses]      = useState({});
-  const [settings,     setSettings]     = useState(DEFAULT_SETTINGS);
+  const [settings,     setSettings]     = useState(withSettingsDeadline(DEFAULT_SETTINGS));
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
 
   // ── UI ──
   const [view,          setView]         = useState("home");
@@ -856,6 +883,7 @@ function App() {
   const [toast,     setToast]    = useState(null);
   const [needsName, setNeedsName] = useState(false);
   const toastTimer = useRef(null);
+  const adminMetadataBackfillDone = useRef(false);
 
   const showToast = useCallback((msg, type = "success") => {
     if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -906,25 +934,114 @@ if (snap.exists()) {
   // ── Realtime database listeners ──
   useEffect(() => {
     if (!db || !user) return;
+    const admin = user.email === ADMIN_EMAIL;
     const refs = [];
     const on = (path, setter, transform) => {
       const r = db.ref(path);
       refs.push(r);
       r.on("value", snap => setter(transform ? transform(snap.val()) : (snap.val() || {})));
     };
-    on("matches",      setMatches,      v => v ? Object.entries(v).map(([k, val]) => ({ ...val, _fbKey: k })) : []);
+    on("matches",      setMatches,      v => v ? Object.entries(v).map(([k, val]) => withMatchLock({ ...val, _fbKey: k })) : []);
     on("participants", setParticipants, v => v ? Object.values(v) : []);
-    on("predictions",  setAllPreds,     null);
-    on("bonuses",      setBonuses,      null);
-    on("settings",     s => setSettings({ ...DEFAULT_SETTINGS, ...(s || {}) }), null);
+    on("settings",     s => {
+      setSettings(withSettingsDeadline(s));
+      setSettingsLoaded(true);
+    }, null);
+    if (admin) {
+      on("predictions", setAllPreds, null);
+      on("bonuses",     setBonuses,  null);
+    } else {
+      on(`predictions/${user.uid}`, value =>
+        setAllPreds(prev => ({ ...prev, [user.uid]: value || {} })), null);
+      on(`bonuses/${user.uid}`, value =>
+        setBonuses(prev => ({ ...prev, [user.uid]: value || {} })), null);
+      on("bonuses/results", value =>
+        setBonuses(prev => ({ ...prev, results: value || {} })), null);
+    }
     return () => refs.forEach(r => r.off());
   }, [user]);
+
+  useEffect(() => {
+    if (!db || !user || user.email !== ADMIN_EMAIL || !settingsLoaded || adminMetadataBackfillDone.current) return;
+    adminMetadataBackfillDone.current = true;
+    const updates = {};
+    matches.forEach(m => {
+      if (!m.id || !m._fbKey) return;
+      updates[`matches/${m._fbKey}/lockAt`] = toTimestamp(m.date);
+      updates[`matchLocks/${m.id}`] = matchAccessRecord(m);
+    });
+    updates["settings/bonusDeadlineAt"] = bonusDeadlineMs(settings);
+    if (Object.keys(updates).length) {
+      db.ref().update(updates).catch(e => {
+        console.error("Match deadline backfill failed:", e);
+        showToast("Deadline-metadata bijwerken mislukt", "error");
+      });
+    }
+  }, [user, matches, settings, settingsLoaded, showToast]);
+
+  useEffect(() => {
+    if (!db || !user || user.email === ADMIN_EMAIL) return;
+    const readableMatches = matches.filter(m => canReadMatchPredictions(m));
+    const readableIds = new Set(readableMatches.map(m => m.id));
+
+    setAllPreds(prev => {
+      const next = { [user.uid]: prev[user.uid] || {} };
+      participants.forEach(p => {
+        if (!p.uid || p.uid === user.uid || !prev[p.uid]) return;
+        const visible = {};
+        Object.entries(prev[p.uid]).forEach(([matchId, pred]) => {
+          if (readableIds.has(matchId)) visible[matchId] = pred;
+        });
+        if (Object.keys(visible).length) next[p.uid] = visible;
+      });
+      return next;
+    });
+
+    if (readableMatches.length === 0 || participants.length === 0) return;
+    const refs = [];
+    participants.forEach(p => {
+      if (!p.uid || p.uid === user.uid) return;
+      readableMatches.forEach(m => {
+        if (!m.id) return;
+        const r = db.ref(`predictions/${p.uid}/${m.id}`);
+        refs.push(r);
+        r.on("value", snap => {
+          const value = snap.val();
+          setAllPreds(prev => {
+            const userPreds = { ...(prev[p.uid] || {}) };
+            if (value == null) delete userPreds[m.id];
+            else userPreds[m.id] = value;
+            return { ...prev, [p.uid]: userPreds };
+          });
+        });
+      });
+    });
+    return () => refs.forEach(r => r.off());
+  }, [user, matches, participants]);
+
+  useEffect(() => {
+    if (!db || !user || user.email === ADMIN_EMAIL) return;
+    if (!bonusAnswersReadable(settings)) {
+      setBonuses(prev => ({ results: prev.results || {}, [user.uid]: prev[user.uid] || {} }));
+      return;
+    }
+    const refs = [];
+    participants.forEach(p => {
+      if (!p.uid || p.uid === user.uid) return;
+      const r = db.ref(`bonuses/${p.uid}`);
+      refs.push(r);
+      r.on("value", snap => {
+        const value = snap.val();
+        setBonuses(prev => ({ ...prev, [p.uid]: value || {} }));
+      });
+    });
+    return () => refs.forEach(r => r.off());
+  }, [user, participants, settings]);
 
   // ── DB helpers ──
   const dbSet  = (path, val) => db.ref(path).set(val);
   const dbPush = (path, val) => db.ref(path).push(val);
   const dbRemove = (path) => db.ref(path).remove();
-  const dbUpdate = (path, val) => db.ref(path).update(val);
 
   const updateName = async (name) => {
     const trimmed = name.trim();
@@ -963,7 +1080,7 @@ if (snap.exists()) {
             <ol style={{ paddingLeft:16, marginTop:6, lineHeight:1.8, fontSize:13 }}>
               <li>Maak project aan op <strong>console.firebase.google.com</strong></li>
               <li>Activeer <strong>Realtime Database</strong> (Europe West)</li>
-              <li>Activeer <strong>Authentication → Email Link</strong></li>
+              <li>Activeer <strong>Authentication → E-mail/wachtwoord en Google</strong></li>
               <li>Voeg web app toe → kopieer <code>firebaseConfig</code></li>
               <li>Vervang config bovenaan dit bestand</li>
               <li>Stel <strong>ADMIN_EMAIL</strong> in op jouw e-mail</li>
@@ -993,8 +1110,8 @@ if (snap.exists()) {
   const myPoints = totalPoints(myUid, allPreds, bonuses, matches, settings);
   const now      = new Date();
 
-  const openMatches   = matches.filter(m => { const d = new Date(m.date); return !m.date || isNaN(d) || d > now; });
-  const closedMatches = matches.filter(m => { const d = new Date(m.date); return m.date && !isNaN(d) && d <= now; });
+  const openMatches   = matches.filter(m => !m.lockAt || m.lockAt > now.getTime());
+  const closedMatches = matches.filter(m => m.lockAt && m.lockAt <= now.getTime());
 
   const navItems = [
     { id:"home",    icon:"🏠", label:"Home"      },
@@ -1030,7 +1147,7 @@ if (snap.exists()) {
           {view === "ranking" && <RankingView participants={participants} allPreds={allPreds} bonuses={bonuses} matches={matches} settings={settings} myUid={myUid} />}
           {view === "hof"     && <HallOfFameView />}
           {view === "rules"   && <RulesView settings={settings} />}
-          {view === "admin"   && isAdmin && <AdminView matches={matches} participants={participants} allPreds={allPreds} bonuses={bonuses} settings={settings} dbSet={dbSet} dbPush={dbPush} dbRemove={dbRemove} dbUpdate={dbUpdate} showToast={showToast} adminTab={adminTab} setAdminTab={setAdminTab} auth={auth} />}
+          {view === "admin"   && isAdmin && <AdminView matches={matches} participants={participants} allPreds={allPreds} bonuses={bonuses} settings={settings} dbSet={dbSet} dbPush={dbPush} dbRemove={dbRemove} showToast={showToast} adminTab={adminTab} setAdminTab={setAdminTab} />}
         </div>
 
         {/* Bottom Nav */}
@@ -1430,7 +1547,13 @@ function PronosView({ openMatches, closedMatches, myPreds, allPreds, myUid, dbSe
   const savePreds = async () => {
     setSaving(true);
     try {
-      await dbSet(`predictions/${myUid}`, localPreds);
+      await Promise.all(openMatches.map(m => {
+        const pred = localPreds[m.id] || { home:"", away:"" };
+        return dbSet(`predictions/${myUid}/${m.id}`, {
+          home: pred.home ?? "",
+          away: pred.away ?? "",
+        });
+      }));
       showToast("Prono's opgeslagen ✓");
     } catch(e) { showToast("Fout bij opslaan", "error"); }
     setSaving(false);
@@ -1446,8 +1569,7 @@ function PronosView({ openMatches, closedMatches, myPreds, allPreds, myUid, dbSe
   };
 
   const now         = new Date();
-  const bonusDeadline = new Date(settings.bonusDeadline || DEFAULT_SETTINGS.bonusDeadline);
-  const bonusClosed = now > bonusDeadline;
+  const bonusClosed = bonusAnswersReadable(settings, now.getTime());
   const cfg = { ...DEFAULT_SETTINGS, ...settings };
 
   // Pre-bereken alle deelnemers per gesloten wedstrijd (Fix 3: useMemo buiten de loop)
@@ -1794,7 +1916,7 @@ function RulesView({ settings }) {
 // ════════════════════════════════════════════════════════════════════════════
 // ADMIN VIEW
 // ════════════════════════════════════════════════════════════════════════════
-function AdminView({ matches, participants, allPreds, bonuses, settings, dbSet, dbPush, dbRemove, dbUpdate, showToast, adminTab, setAdminTab, auth }) {
+function AdminView({ matches, participants, allPreds, bonuses, settings, dbSet, dbPush, dbRemove, showToast, adminTab, setAdminTab }) {
 
   const tabs = [
     ["wedstrijden", "⚽"],
@@ -1814,9 +1936,9 @@ function AdminView({ matches, participants, allPreds, bonuses, settings, dbSet, 
         ))}
       </div>
 
-      {adminTab === "wedstrijden"  && <AdminMatches  matches={matches} dbPush={dbPush} dbRemove={dbRemove} dbUpdate={dbUpdate} showToast={showToast} />}
+      {adminTab === "wedstrijden"  && <AdminMatches  matches={matches} dbSet={dbSet} dbPush={dbPush} dbRemove={dbRemove} showToast={showToast} />}
       {adminTab === "uitslagen"    && <AdminResults  matches={matches} dbSet={dbSet} showToast={showToast} />}
-      {adminTab === "deelnemers"   && <AdminParticipants participants={participants} allPreds={allPreds} bonuses={bonuses} matches={matches} settings={settings} dbSet={dbSet} dbRemove={dbRemove} showToast={showToast} auth={auth} />}
+      {adminTab === "deelnemers"   && <AdminParticipants participants={participants} allPreds={allPreds} bonuses={bonuses} matches={matches} settings={settings} dbRemove={dbRemove} showToast={showToast} />}
       {adminTab === "bonusvragen"  && <AdminBonuses  bonuses={bonuses} dbSet={dbSet} showToast={showToast} settings={settings} />}
       {adminTab === "instellingen" && <AdminSettings settings={settings} dbSet={dbSet} showToast={showToast} matches={matches} participants={participants} allPreds={allPreds} bonuses={bonuses} />}
     </div>
@@ -1824,7 +1946,7 @@ function AdminView({ matches, participants, allPreds, bonuses, settings, dbSet, 
 }
 
 // ── ADMIN: MATCHES ───────────────────────────────────────────────────────────
-function AdminMatches({ matches, dbPush, dbRemove, dbUpdate, showToast }) {
+function AdminMatches({ matches, dbSet, dbPush, dbRemove, showToast }) {
   const blank = { home:"", away:"", date:"", group:"", phase:"group" };
   const [form, setForm] = useState(blank);
   const [importPreview, setImportPreview] = useState(null);
@@ -1836,7 +1958,9 @@ function AdminMatches({ matches, dbPush, dbRemove, dbUpdate, showToast }) {
   const add = async () => {
     if (!form.home.trim() || !form.away.trim()) { showToast("Vul beide ploegen in", "error"); return; }
     const id = Date.now().toString();
-    await dbPush("matches", { ...form, id, result: null });
+    const match = withMatchLock({ ...form, id, result: null });
+    await dbPush("matches", match);
+    await dbSet(`matchLocks/${id}`, matchAccessRecord(match));
     setForm(blank);
     showToast("Wedstrijd toegevoegd ✓");
   };
@@ -1847,6 +1971,7 @@ function AdminMatches({ matches, dbPush, dbRemove, dbUpdate, showToast }) {
     if (!m?._fbKey) { showToast("Wedstrijd niet gevonden", "error"); return; }
     try {
       await firebase.database().ref(`matches/${m._fbKey}`).remove();
+      await dbRemove(`matchLocks/${m.id}`);
       showToast("Wedstrijd verwijderd ✓");
     } catch(e) {
       showToast("Verwijderen mislukt: " + e.message, "error");
@@ -1863,7 +1988,9 @@ function AdminMatches({ matches, dbPush, dbRemove, dbUpdate, showToast }) {
     const m = matches.find(m => m.id === editId);
     if (!m?._fbKey) { showToast("Wedstrijd niet gevonden", "error"); return; }
     try {
-      await firebase.database().ref(`matches/${m._fbKey}`).update(editForm);
+      const match = withMatchLock({ ...m, ...editForm });
+      await firebase.database().ref(`matches/${m._fbKey}`).update({ ...editForm, lockAt: match.lockAt });
+      await dbSet(`matchLocks/${m.id}`, matchAccessRecord(match));
       setEditId(null);
       showToast("Wedstrijd opgeslagen ✓");
     } catch(e) {
@@ -1897,7 +2024,7 @@ function AdminMatches({ matches, dbPush, dbRemove, dbUpdate, showToast }) {
       for (let i = 0; i < importPreview.length; i++) {
         const m = importPreview[i];
         const id = `${Date.now()}-${i}-${Math.random().toString(36).slice(2,7)}`;
-        await dbPush("matches", {
+        const match = withMatchLock({
           home:  m.home  || "",
           away:  m.away  || "",
           date:  m.date  || "",
@@ -1906,6 +2033,8 @@ function AdminMatches({ matches, dbPush, dbRemove, dbUpdate, showToast }) {
           id,
           result: null,
         });
+        await dbPush("matches", match);
+        await dbSet(`matchLocks/${id}`, matchAccessRecord(match));
       }
       showToast(`${importPreview.length} wedstrijden geïmporteerd ✓`);
       setImportPreview(null);
@@ -2027,7 +2156,9 @@ function AdminResults({ matches, dbSet, showToast }) {
     if (!r || r.home === "" || r.away === "") { showToast("Vul beide scores in", "error"); return; }
     if (!m._fbKey) { showToast("Wedstrijd niet gevonden", "error"); return; }
     try {
-      await firebase.database().ref(`matches/${m._fbKey}`).update({ result: { home: r.home, away: r.away } });
+      const result = { home: r.home, away: r.away };
+      await firebase.database().ref(`matches/${m._fbKey}`).update({ result });
+      await dbSet(`matchLocks/${m.id}`, matchAccessRecord({ ...m, result }));
       showToast("Uitslag opgeslagen ✓");
     } catch(e) {
       showToast("Opslaan mislukt: " + e.message, "error");
@@ -2038,6 +2169,7 @@ function AdminResults({ matches, dbSet, showToast }) {
     if (!m._fbKey) { showToast("Wedstrijd niet gevonden", "error"); return; }
     try {
       await firebase.database().ref(`matches/${m._fbKey}`).update({ result: null });
+      await dbSet(`matchLocks/${m.id}`, matchAccessRecord({ ...m, result: null }));
       showToast("Uitslag gewist");
     } catch(e) {
       showToast("Wissen mislukt: " + e.message, "error");
@@ -2077,34 +2209,7 @@ function AdminResults({ matches, dbSet, showToast }) {
 }
 
 // ── ADMIN: PARTICIPANTS ──────────────────────────────────────────────────────
-function AdminParticipants({ participants, allPreds, bonuses, matches, settings, dbSet, dbRemove, showToast, auth }) {
-  const [form, setForm] = useState({ name:"", email:"" });
-  const [sending, setSending] = useState(false);
-
-  const invite = async () => {
-    if (!form.name.trim() || !form.email.trim()) { showToast("Naam en e-mail vereist", "error"); return; }
-    setSending(true);
-    try {
-      // Send magic link invite
-      const inviteUrl = new URL(window.location.origin);
-      inviteUrl.searchParams.set("email", form.email.trim());
-      await auth.sendSignInLinkToEmail(form.email.trim(), {
-        url: inviteUrl.toString(),
-        handleCodeInApp: true,
-      });
-      // Pre-register participant (will be linked when they sign in)
-      // Store with email as temp key until real uid is known
-      await dbSet(`invites/${form.email.replace(/\./g,"_").replace(/@/g,"__at__")}`, {
-        name: form.name.trim(),
-        email: form.email.trim(),
-        invitedAt: new Date().toISOString(),
-      });
-      showToast(`Uitnodiging verstuurd naar ${form.email} ✓`);
-      setForm({ name:"", email:"" });
-    } catch(e) { showToast("Fout: " + e.message, "error"); }
-    setSending(false);
-  };
-
+function AdminParticipants({ participants, allPreds, bonuses, matches, settings, dbRemove, showToast }) {
   const remove = async (uid) => {
     if (!window.confirm("Deelnemer verwijderen?")) return;
     await dbRemove(`participants/${uid}`);
@@ -2115,27 +2220,6 @@ function AdminParticipants({ participants, allPreds, bonuses, matches, settings,
 
   return (
     <div>
-      <div className="section-title">Deelnemer uitnodigen</div>
-      <div className="card">
-        <div className="alert alert-info" style={{ marginBottom:12 }}>
-          📧 Deelnemer ontvangt een uitnodigingsmail. Ze kunnen inloggen via e-mail/wachtwoord, Google of Apple.
-        </div>
-        <div className="form-group">
-          <label className="form-label">Naam</label>
-          <input className="form-input" placeholder="Voornaam of bijnaam" value={form.name}
-            onChange={e => setForm({...form,name:e.target.value})} />
-        </div>
-        <div className="form-group mb-0">
-          <label className="form-label">E-mailadres</label>
-          <input className="form-input" type="email" inputMode="email" placeholder="naam@voorbeeld.be" value={form.email}
-            onChange={e => setForm({...form,email:e.target.value})}
-            onKeyDown={e => e.key === "Enter" && invite()} />
-        </div>
-        <button className="btn btn-gold mt-12" onClick={invite} disabled={sending || !form.name.trim() || !form.email.trim()}>
-          {sending ? "⏳ Versturen…" : "📧 Uitnodiging sturen"}
-        </button>
-      </div>
-
       <div className="section-title">Deelnemers ({participants.length})</div>
       {participants.length === 0 && <div className="empty"><div className="empty-icon">👥</div><div className="empty-text">Nog geen deelnemers ingelogd</div></div>}
       {participants.map(p => {
@@ -2208,7 +2292,7 @@ function AdminSettings({ settings, dbSet, showToast, matches, participants, allP
   const [form, setForm] = useState({ ...DEFAULT_SETTINGS, ...settings });
 
   const save = async () => {
-    await dbSet("settings", form);
+    await dbSet("settings", withSettingsDeadline(form));
     showToast("Instellingen opgeslagen ✓");
   };
 
@@ -2220,6 +2304,7 @@ function AdminSettings({ settings, dbSet, showToast, matches, participants, allP
       dbSet("participants", null),
       dbSet("predictions", null),
       dbSet("bonuses", null),
+      dbSet("matchLocks", null),
     ]);
     showToast("Alle data gereset", "error");
   };

@@ -11,19 +11,27 @@
     },
 
     "predictions": {
-      ".read": "auth != null",
+      ".read": "auth != null && auth.token.email === 'deboeckt@gmail.com'",
       "$uid": {
-        ".write": "$uid === auth.uid"
+        ".read": "$uid === auth.uid || auth.token.email === 'deboeckt@gmail.com'",
+        "$matchId": {
+          ".read": "$uid === auth.uid || auth.token.email === 'deboeckt@gmail.com' || root.child('matchLocks').child($matchId).child('resultPublished').val() === true || (root.child('matchLocks').child($matchId).child('lockAt').isNumber() && root.child('matchLocks').child($matchId).child('lockAt').val() <= now)",
+          ".write": "$uid === auth.uid && root.child('matchLocks').child($matchId).child('exists').val() === true && (!root.child('matchLocks').child($matchId).child('lockAt').exists() || root.child('matchLocks').child($matchId).child('lockAt').val() > now)",
+          ".validate": "newData.hasChildren(['home', 'away']) && newData.child('home').isString() && newData.child('away').isString() && newData.child('home').val().matches(/^[0-9]{0,2}$/) && newData.child('away').val().matches(/^[0-9]{0,2}$/)"
+        }
       }
     },
 
     "bonuses": {
-      ".read": "auth != null",
+      ".read": "auth != null && auth.token.email === 'deboeckt@gmail.com'",
       "results": {
+        ".read": "auth != null",
         ".write": "auth.token.email === 'deboeckt@gmail.com'"
       },
       "$uid": {
-        ".write": "$uid === auth.uid"
+        ".read": "$uid === auth.uid || auth.token.email === 'deboeckt@gmail.com' || (root.child('settings').child('bonusDeadlineAt').isNumber() && root.child('settings').child('bonusDeadlineAt').val() <= now) || (!root.child('settings').child('bonusDeadlineAt').exists() && 1781204400000 <= now)",
+        ".write": "$uid === auth.uid && ((root.child('settings').child('bonusDeadlineAt').isNumber() && root.child('settings').child('bonusDeadlineAt').val() > now) || (!root.child('settings').child('bonusDeadlineAt').exists() && 1781204400000 > now))",
+        ".validate": "newData.hasChildren(['topScorer', 'winner', 'runnerUp', 'third']) && newData.child('topScorer').isString() && newData.child('winner').isString() && newData.child('runnerUp').isString() && newData.child('third').isString()"
       }
     },
 
@@ -32,13 +40,13 @@
       ".write": "auth.token.email === 'deboeckt@gmail.com'"
     },
 
-    "settings": {
+    "matchLocks": {
       ".read": "auth != null",
       ".write": "auth.token.email === 'deboeckt@gmail.com'"
     },
 
-    "invites": {
-      ".read": "auth.token.email === 'deboeckt@gmail.com'",
+    "settings": {
+      ".read": "auth != null",
       ".write": "auth.token.email === 'deboeckt@gmail.com'"
     }
   }
