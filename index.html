@@ -867,11 +867,6 @@ function App() {
   useEffect(() => {
     if (!auth) { setAuthLoading(false); return; }
 
-    // Handle OAuth redirect result (used on iOS PWA instead of popup)
-    auth.getRedirectResult()
-      .then(result => { if (result?.user) window.history.replaceState({}, document.title, "/"); })
-      .catch(e => { if (e.code !== 'auth/null-user') showToast("Login mislukt: " + e.message, "error"); });
-
     const unsub = auth.onAuthStateChanged(async u => {
       setUser(u);
       if (u) {
@@ -1065,10 +1060,8 @@ function LoginScreen({ showToast, settings }) {
   const signInWithProvider = async (provider) => {
     setLoading(true);
     try {
-      // Use popup: redirect is broken on GitHub Pages because the cross-origin
-      // cookie handshake between firebaseapp.com and timbooktoo.github.io is
-      // blocked by all modern browsers (Safari ITP, Chrome, Firefox ETP).
-      // Popup uses window.postMessage instead of cookies, so it works everywhere.
+      // Redirect sign-in needs browser sessionStorage during the round trip.
+      // Popup sign-in avoids the missing-initial-state failure on partitioned storage.
       await auth.signInWithPopup(provider);
     } catch(e) {
       if (e.code !== 'auth/popup-closed-by-user' && e.code !== 'auth/cancelled-popup-request') {
