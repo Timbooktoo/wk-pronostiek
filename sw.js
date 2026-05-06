@@ -1,4 +1,4 @@
-const CACHE = 'wk-prono-v1';
+const CACHE = 'wk-prono-v2';
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(['.', './index.html'])));
@@ -17,21 +17,30 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
 
-  const isSameOrigin = new URL(e.request.url).origin === self.location.origin;
+  const url = new URL(e.request.url);
+  const isSameOrigin = url.origin === self.location.origin;
+  const isFirebaseSdk = url.hostname === 'www.gstatic.com' && url.pathname.startsWith('/firebasejs/');
+  const isStaticCdnAsset = (
+    url.hostname === 'fonts.googleapis.com' ||
+    url.hostname === 'fonts.gstatic.com' ||
+    url.hostname === 'unpkg.com'
+  );
 
-  if (isSameOrigin) {
-    // Network-first for the app itself so updates land immediately
+  if (isSameOrigin || isFirebaseSdk) {
+    // Network-first for the app and Firebase SDK so auth fixes land immediately.
     e.respondWith(
       fetch(e.request)
         .then(res => { caches.open(CACHE).then(c => c.put(e.request, res.clone())); return res; })
         .catch(() => caches.match(e.request))
     );
-  } else {
-    // Cache-first for CDN assets (React, Firebase, fonts) — loads fast, works offline
+  } else if (isStaticCdnAsset) {
+    // Cache-first only for static presentation/runtime assets.
     e.respondWith(
       caches.match(e.request).then(cached => cached ||
         fetch(e.request).then(res => { caches.open(CACHE).then(c => c.put(e.request, res.clone())); return res; })
       )
     );
+  } else {
+    e.respondWith(fetch(e.request));
   }
 });

@@ -772,11 +772,23 @@ const DEFAULT_SETTINGS = {
 // FIREBASE INIT
 // ════════════════════════════════════════════════════════════════════════════
 let firebaseApp, auth, db;
+let authPersistenceWarning = null;
+let authReady = Promise.resolve();
 try {
   firebaseApp = firebase.initializeApp(firebaseConfig);
   auth = firebase.auth();
   db   = firebase.database();
-  auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+  auth.languageCode = "nl";
+  authReady = auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL)
+    .catch(e => {
+      console.warn("Local auth persistence unavailable; falling back to session persistence.", e);
+      authPersistenceWarning = "Je browser blokkeert permanente loginopslag. Je blijft mogelijk alleen tijdens deze sessie aangemeld.";
+      return auth.setPersistence(firebase.auth.Auth.Persistence.SESSION);
+    })
+    .catch(e => {
+      console.warn("Session auth persistence unavailable; Firebase will use its default auth storage.", e);
+      authPersistenceWarning = "Je browser blokkeert loginopslag. Zet private mode of storageblokkering uit als aanmelden niet blijft werken.";
+    });
 } catch(e) {
   console.error("Firebase init failed:", e);
 }
@@ -801,6 +813,55 @@ const norm = s => (s || "").trim().toLowerCase().normalize("NFD").replace(/[̀-�
 const sc   = v => (v !== "" && v != null) ? v : "?"; // safe score display (0 = valid, "" = no prono)
 const EMPTY_PREDS = Object.freeze({});
 const EMPTY_BONUS = Object.freeze({ topScorer:"", winner:"", runnerUp:"", third:"" });
+const hasAuthProvider = (user, providerId) =>
+  !!user?.providerData?.some(provider => provider?.providerId === providerId);
+const requiresEmailVerification = user =>
+  hasAuthProvider(user, "password") && !user.emailVerified;
+const appContinueUrl = () => {
+  const base = window.location.origin && window.location.origin !== "null"
+    ? `${window.location.origin}${window.location.pathname}`
+    : window.location.href.split(/[?#]/)[0];
+  return base || window.location.href;
+};
+const authActionCodeSettings = () => {
+  const url = appContinueUrl();
+  return /^https?:\/\//.test(url) ? { url, handleCodeInApp: false } : undefined;
+};
+const ignoredAuthErrors = new Set(["auth/popup-closed-by-user", "auth/cancelled-popup-request"]);
+const authErrorMessage = (error, fallback = "Login mislukt") => {
+  if (ignoredAuthErrors.has(error?.code)) return null;
+  switch (error?.code) {
+    case "auth/popup-blocked":
+      return "Popup geblokkeerd. Sta pop-ups toe of log in met e-mail en wachtwoord.";
+    case "auth/operation-not-supported-in-this-environment":
+      return "Deze browser ondersteunt Google-login niet goed. Open de gewone browser of gebruik e-mail en wachtwoord.";
+    case "auth/web-storage-unsupported":
+      return "Je browser blokkeert loginopslag. Zet private mode of storageblokkering uit en probeer opnieuw.";
+    case "auth/unauthorized-domain":
+      return "Deze domeinnaam is niet toegestaan in Firebase Authentication. Voeg ze toe bij Authorized domains.";
+    case "auth/unauthorized-continue-uri":
+    case "auth/invalid-continue-uri":
+      return "De terugkeerlink voor e-mailacties is niet toegestaan in Firebase Authentication.";
+    case "auth/account-exists-with-different-credential":
+      return "Er bestaat al een account met dit e-mailadres via een andere loginmethode.";
+    case "auth/email-already-in-use":
+      return "Er bestaat al een account met dit e-mailadres.";
+    case "auth/invalid-email":
+      return "Controleer het e-mailadres.";
+    case "auth/invalid-credential":
+    case "auth/user-not-found":
+    case "auth/wrong-password":
+      return "E-mailadres of wachtwoord klopt niet.";
+    case "auth/weak-password":
+      return "Wachtwoord moet minstens 6 tekens zijn.";
+    case "auth/too-many-requests":
+      return "Te veel pogingen. Wacht even en probeer opnieuw.";
+    case "auth/network-request-failed":
+      return "Netwerkfout. Controleer je verbinding en probeer opnieuw.";
+    default:
+      return `${fallback}: ${error?.message || "onbekende fout"}`;
+  }
+};
 const bonusFormValue = bonus => ({ ...EMPTY_BONUS, ...(bonus || {}) });
 const toTimestamp = value => {
   const time = Date.parse(value || "");
@@ -902,9 +963,8 @@ function App() {
       setUser(u);
       if (u) {
         setIsAdmin(u.email === ADMIN_EMAIL);
-        // Email/password accounts must be verified before entering the app
-        const isEmailProvider = u.providerData[0]?.providerId === "password";
-        if (isEmailProvider && !u.emailVerified) { setAuthLoading(false); return; }
+        // Email/password accounts must be verified before entering the app.
+        if (requiresEmailVerification(u)) { setAuthLoading(false); return; }
         // Load participant record
         try {
           const snap = await db.ref(`participants/${u.uid}`).get();
@@ -1099,7 +1159,7 @@ if (snap.exists()) {
   // ════════════════════════════════════════════════════════════════════════
   if (!user) return <LoginScreen showToast={showToast} settings={settings} />;
 
-  if (user.providerData[0]?.providerId === "password" && !user.emailVerified)
+  if (requiresEmailVerification(user))
     return <VerifyEmailScreen user={user} showToast={showToast} />;
 
   if (needsName) return <ChooseNameScreen updateName={updateName} defaultName={participant?.name || ""} />;
@@ -1176,17 +1236,26 @@ function LoginScreen({ showToast, settings }) {
   const [password,setPassword]= useState("");
   const [showPwd, setShowPwd] = useState(false);
   const [loading, setLoading] = useState(false);
+  const persistenceWarningShown = useRef(false);
+
+  const ensureAuthReady = async () => {
+    await authReady;
+    if (authPersistenceWarning && !persistenceWarningShown.current) {
+      persistenceWarningShown.current = true;
+      showToast(authPersistenceWarning, "error");
+    }
+  };
 
   const signInWithProvider = async (provider) => {
     setLoading(true);
     try {
       // Redirect sign-in needs browser sessionStorage during the round trip.
       // Popup sign-in avoids the missing-initial-state failure on partitioned storage.
+      await ensureAuthReady();
       await auth.signInWithPopup(provider);
     } catch(e) {
-      if (e.code !== 'auth/popup-closed-by-user' && e.code !== 'auth/cancelled-popup-request') {
-        showToast("Login mislukt: " + e.message, "error");
-      }
+      const message = authErrorMessage(e);
+      if (message) showToast(message, "error");
       setLoading(false);
     }
   };
@@ -1196,8 +1265,14 @@ function LoginScreen({ showToast, settings }) {
   const handleLogin = async () => {
     if (!email.trim() || !password) return;
     setLoading(true);
-    try { await auth.signInWithEmailAndPassword(email.trim(), password); }
-    catch(e) { showToast("Login mislukt: " + e.message, "error"); }
+    try {
+      await ensureAuthReady();
+      await auth.signInWithEmailAndPassword(email.trim(), password);
+    }
+    catch(e) {
+      const message = authErrorMessage(e, "Login mislukt");
+      if (message) showToast(message, "error");
+    }
     setLoading(false);
   };
 
@@ -1206,10 +1281,14 @@ function LoginScreen({ showToast, settings }) {
     if (password.length < 6) { showToast("Wachtwoord moet minstens 6 tekens zijn", "error"); return; }
     setLoading(true);
     try {
+      await ensureAuthReady();
       const cred = await auth.createUserWithEmailAndPassword(email.trim(), password);
-      await cred.user.sendEmailVerification();
+      await cred.user.sendEmailVerification(authActionCodeSettings());
       showToast("Account aangemaakt! Verifieer je e-mail.", "success");
-    } catch(e) { showToast("Registratie mislukt: " + e.message, "error"); }
+    } catch(e) {
+      const message = authErrorMessage(e, "Registratie mislukt");
+      if (message) showToast(message, "error");
+    }
     setLoading(false);
   };
 
@@ -1217,10 +1296,14 @@ function LoginScreen({ showToast, settings }) {
     if (!email.trim()) { showToast("Voer je e-mailadres in", "error"); return; }
     setLoading(true);
     try {
-      await auth.sendPasswordResetEmail(email.trim());
+      await ensureAuthReady();
+      await auth.sendPasswordResetEmail(email.trim(), authActionCodeSettings());
       showToast("Reset-link verstuurd! Controleer je inbox", "success");
       setMode("login");
-    } catch(e) { showToast("Fout: " + e.message, "error"); }
+    } catch(e) {
+      const message = authErrorMessage(e, "Fout");
+      if (message) showToast(message, "error");
+    }
     setLoading(false);
   };
 
@@ -1323,18 +1406,31 @@ function VerifyEmailScreen({ user, showToast }) {
 
   const resend = async () => {
     setSending(true);
-    try { await user.sendEmailVerification(); showToast("Verificatiemail opnieuw verstuurd!", "success"); }
-    catch(e) { showToast("Fout: " + e.message, "error"); }
+    try {
+      await authReady;
+      await user.sendEmailVerification(authActionCodeSettings());
+      showToast("Verificatiemail opnieuw verstuurd!", "success");
+    }
+    catch(e) {
+      const message = authErrorMessage(e, "Fout");
+      if (message) showToast(message, "error");
+    }
     setSending(false);
   };
 
   const checkVerified = async () => {
     setChecking(true);
-    await auth.currentUser.reload();
-    if (auth.currentUser.emailVerified) {
-      window.location.reload();
-    } else {
-      showToast("E-mail nog niet geverifieerd", "error");
+    try {
+      await auth.currentUser.reload();
+      if (auth.currentUser.emailVerified) {
+        window.location.reload();
+      } else {
+        showToast("E-mail nog niet geverifieerd", "error");
+        setChecking(false);
+      }
+    } catch(e) {
+      const message = authErrorMessage(e, "Controle mislukt");
+      if (message) showToast(message, "error");
       setChecking(false);
     }
   };
