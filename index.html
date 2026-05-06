@@ -799,6 +799,9 @@ const calcPoints = (pred, result, phase) => {
 
 const norm = s => (s || "").trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
 const sc   = v => (v !== "" && v != null) ? v : "?"; // safe score display (0 = valid, "" = no prono)
+const EMPTY_PREDS = Object.freeze({});
+const EMPTY_BONUS = Object.freeze({ topScorer:"", winner:"", runnerUp:"", third:"" });
+const bonusFormValue = bonus => ({ ...EMPTY_BONUS, ...(bonus || {}) });
 const toTimestamp = value => {
   const time = Date.parse(value || "");
   return Number.isFinite(time) ? time : null;
@@ -1105,8 +1108,8 @@ if (snap.exists()) {
   // MAIN APP
   // ════════════════════════════════════════════════════════════════════════
   const myUid    = user.uid;
-  const myPreds  = allPreds?.[myUid] || {};
-  const myBonus  = bonuses?.[myUid] || {};
+  const myPreds  = allPreds?.[myUid] || EMPTY_PREDS;
+  const myBonus  = bonuses?.[myUid] || EMPTY_BONUS;
   const myPoints = totalPoints(myUid, allPreds, bonuses, matches, settings);
   const now      = new Date();
 
@@ -1524,7 +1527,7 @@ function HomeView({ myPoints, matches, participants, allPreds, bonuses, settings
 function PronosView({ openMatches, closedMatches, myPreds, allPreds, myUid, dbSet, showToast, bonuses, myBonus, settings, matches, participants, initialTab }) {
   const [tab,        setTab]        = useState(initialTab || "open");
   const [localPreds, setLocalPreds] = useState(myPreds || {});
-  const [localBonus, setLocalBonus] = useState(myBonus || { topScorer:"", winner:"", runnerUp:"", third:"" });
+  const [localBonus, setLocalBonus] = useState(bonusFormValue(myBonus));
   const [saving,     setSaving]     = useState(false);
 
   // Sync if myPreds/myBonus changes from DB (useRef to avoid JSON.stringify on every keystroke)
@@ -1540,14 +1543,19 @@ function PronosView({ openMatches, closedMatches, myPreds, allPreds, myUid, dbSe
   useEffect(() => {
     if (myBonus !== prevBonus.current) {
       prevBonus.current = myBonus;
-      setLocalBonus(myBonus || { topScorer:"", winner:"", runnerUp:"", third:"" });
+      setLocalBonus(bonusFormValue(myBonus));
     }
   }, [myBonus]);
 
   const savePreds = async () => {
     setSaving(true);
     try {
-      await Promise.all(openMatches.map(m => {
+      const writableMatches = openMatches.filter(m => {
+        const pred = localPreds[m.id];
+        const saved = myPreds?.[m.id];
+        return pred && (pred.home !== "" || pred.away !== "" || saved);
+      });
+      await Promise.all(writableMatches.map(m => {
         const pred = localPreds[m.id] || { home:"", away:"" };
         return dbSet(`predictions/${myUid}/${m.id}`, {
           home: pred.home ?? "",
