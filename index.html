@@ -1688,10 +1688,11 @@ function PronosView({ openMatches, closedMatches, myPreds, allPreds, myUid, dbSe
   }, [closedMatches, participants, allPreds]);
 
   const tabItems = [
-    ["open",    `⚽ Open (${openMatches.length})`],
-    ["closed",  `🔒 Gesloten`],
-    ["results", `📊 Scores`],
-    ["bonus",   `🏆 Bonus`],
+    ["open",      `⚽ Open (${openMatches.length})`],
+    ["closed",    `🔒 Gesloten`],
+    ["results",   `📊 Scores`],
+    ["bonus",     `🏆 Bonus`],
+    ...(bonusClosed ? [["bonus-all", `👥 Bonus Overzicht`]] : []),
   ];
 
   return (
@@ -1827,6 +1828,60 @@ function PronosView({ openMatches, closedMatches, myPreds, allPreds, myUid, dbSe
           </button>
         </div>
       )}
+
+      {/* ── BONUS OVERZICHT (alle spelers, enkel na deadline) ── */}
+      {tab === "bonus-all" && bonusClosed && (() => {
+        const bonusResults = bonuses?.results || {};
+        const bonusFields = [
+          { key: "topScorer", label: "Topscorer", icon: "🥇" },
+          { key: "winner",    label: "Winnaar",   icon: "🏆" },
+          { key: "runnerUp",  label: "Runner-up", icon: "🥈" },
+          { key: "third",     label: "3e Plaats", icon: "🥉" },
+        ];
+        const sortedParticipants = [...(participants || [])].sort((a, b) =>
+          (a.name || "").localeCompare(b.name || "", "nl")
+        );
+        return (
+          <div>
+            <div className="alert alert-info" style={{ marginBottom: 14 }}>
+              🔒 Bonusvragen gesloten — antwoorden van alle spelers zijn nu zichtbaar
+            </div>
+            {sortedParticipants.map(p => {
+              const ans = bonuses?.[p.uid] || {};
+              const isMe = p.uid === myUid;
+              return (
+                <div key={p.uid} className={`card ${isMe ? "card-gold" : ""}`} style={{ marginBottom: 10 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                    <div style={{ fontFamily: "'Barlow Condensed'", fontWeight: 700, fontSize: 16, color: isMe ? "var(--gold-l)" : "var(--white)" }}>
+                      👤 {p.name || p.email?.split("@")[0]}
+                    </div>
+                    {isMe && <span className="badge badge-open">jij</span>}
+                  </div>
+                  <div style={{ fontSize: 13, lineHeight: 2 }}>
+                    {bonusFields.map(({ key, label, icon }) => {
+                      const answer = ans[key];
+                      const correct = bonusResults[key];
+                      const isCorrect = correct && answer && norm(answer) === norm(correct);
+                      const hasAnswer = !!answer;
+                      return (
+                        <div key={key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "2px 0", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+                          <span style={{ color: "var(--gray)" }}>{icon} {label}</span>
+                          <span style={{ fontWeight: 600, color: hasAnswer ? (correct ? (isCorrect ? "var(--gold-l)" : "var(--gray-l)") : "var(--white)") : "var(--gray)", fontStyle: hasAnswer ? "normal" : "italic" }}>
+                            {hasAnswer ? answer : "—"}
+                            {correct && hasAnswer && (
+                              <span style={{ marginLeft: 6 }}>{isCorrect ? "✓" : "✗"}</span>
+                            )}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
 
       {tab === "bonus" && (
         <div>
