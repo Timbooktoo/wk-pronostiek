@@ -1174,7 +1174,7 @@ if (snap.exists()) {
   const now      = new Date();
 
   const openMatches   = matches.filter(m => !m.lockAt || m.lockAt > now.getTime());
-  const closedMatches = matches.filter(m => m.lockAt && m.lockAt <= now.getTime());
+  const closedMatches = matches.filter(m => m.lockAt && m.lockAt <= now.getTime()).sort((a, b) => b.lockAt - a.lockAt);
 
   const navItems = [
     { id:"home",    icon:"🏠", label:"Home"      },
